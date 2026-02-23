@@ -32,9 +32,11 @@ class VideoExporter:
         proj = self.project
         output_path = proj.output_dir / output_filename
 
-        # 動画ファイルリストを収集
+        # 動画ファイルリストを収集（無効シーンはスキップ）
         video_files: list[Path] = []
         for scene in proj.scenes:
+            if not scene.enabled:
+                continue
             vp = scene.video_path(proj.scene_dir(scene.scene_id))
             if vp.exists():
                 video_files.append(vp)

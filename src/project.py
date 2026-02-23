@@ -113,9 +113,10 @@ class Project:
     def save_scene(self, scene: Scene) -> None:
         """指定シーンをディスクに保存し、scenes リストも更新する。"""
         scene.save(self.scene_dir(scene.scene_id))
-        idx = scene.scene_id - 1
-        if 0 <= idx < len(self.scenes):
-            self.scenes[idx] = scene
+        for i, s in enumerate(self.scenes):
+            if s.scene_id == scene.scene_id:
+                self.scenes[i] = scene
+                break
 
     # ---- 読込 ----
 
@@ -150,7 +151,7 @@ class Project:
         )
         proj.initialize_dirs()
 
-        # シーン読込
+        # シーン読込（order フィールドで並び替え）
         scenes_dir = proj.scenes_dir
         scene_dirs = sorted(scenes_dir.glob("scene_*"))
         for sd in scene_dirs:
@@ -159,6 +160,7 @@ class Project:
                 proj.scenes.append(scene)
             except Exception:
                 pass
+        proj.scenes.sort(key=lambda s: s.order)
 
         return proj
 

@@ -57,6 +57,11 @@ class BatchGenerator:
                 if self._stop_event.is_set():
                     break
 
+                if not scene.enabled:
+                    if on_progress:
+                        on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（無効）")
+                    continue
+
                 if skip_video_done and scene.is_video_done():
                     if on_progress:
                         on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（完了済み）")
@@ -117,7 +122,7 @@ class BatchGenerator:
             target: "image" / "video" / "both"
         """
         proj = self.project
-        scene = proj.scenes[scene_id - 1]
+        scene = next(s for s in proj.scenes if s.scene_id == scene_id)
 
         if target in ("image", "both"):
             scene.status = "plot_done"

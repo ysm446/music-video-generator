@@ -229,6 +229,7 @@ def create_plan_tab():
                     )
 
                 plan_notes = gr.Textbox(label="メモ", lines=1)
+                plan_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
 
                 with gr.Row():
                     plan_save_btn = gr.Button("保存", variant="primary")
@@ -243,7 +244,7 @@ def create_plan_tab():
         plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
         plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
         plan_img_wf, plan_vid_wf,
-        plan_notes, plan_save_btn, plan_consult_btn, plan_save_status,
+        plan_notes, plan_enabled, plan_save_btn, plan_consult_btn, plan_save_status,
     )
 
 
@@ -306,6 +307,8 @@ def create_generate_tab():
                         allow_custom_value=True,
                     )
 
+                gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
+
                 with gr.Row():
                     gen_regen_img_btn = gr.Button("画像だけ再生成")
                     gen_regen_vid_btn = gr.Button("動画だけ再生成")
@@ -322,6 +325,7 @@ def create_generate_tab():
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
+        gen_enabled,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
     )
@@ -373,6 +377,7 @@ def _scene_to_plan_values(scene: Scene) -> tuple:
         scene.image_workflow or "",
         scene.video_workflow or "",
         scene.notes,
+        scene.enabled,
     )
 
 def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
@@ -394,6 +399,7 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
         scene.image_workflow or "",
         scene.video_workflow or "",
         scene.status,
+        scene.enabled,
     )
 
 def _build_scene_samples(scenes: list[Scene]) -> list[list[str]]:
@@ -562,7 +568,7 @@ def build_app() -> gr.Blocks:
             plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
             plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
             plan_img_wf, plan_vid_wf,
-            plan_notes, plan_save_btn, plan_consult_btn, plan_save_status,
+            plan_notes, plan_enabled, plan_save_btn, plan_consult_btn, plan_save_status,
         ) = create_plan_tab()
 
         (
@@ -573,6 +579,7 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
+            gen_enabled,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
@@ -712,11 +719,11 @@ def build_app() -> gr.Blocks:
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
             _no_cfg = (gr.update(),) * 7
             if not name:
-                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg
+                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update()
             try:
                 proj = Project.load(BASE_DIR / name)
             except Exception as e:
-                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg
+                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update()
 
             # settings.json 読み込み
             s = settings_manager.load(proj.project_dir)
@@ -725,13 +732,15 @@ def build_app() -> gr.Blocks:
             samples = _build_scene_samples(proj.scenes)
             state = {"project_name": name}
             msg = f"プロジェクト '{name}' を読み込みました（{len(proj.scenes)}シーン）"
-            return samples, samples, msg, state, 0, *_settings_to_cfg_values(s)
+            music_path = proj.absolute_music_path()
+            music_val = str(music_path) if music_path else None
+            return samples, samples, msg, state, 0, *_settings_to_cfg_values(s), music_val, name
 
         load_btn.click(
             fn=on_load_project,
             inputs=[load_dropdown],
             outputs=[plan_scene_btns, gen_scene_btns, load_status, project_state, current_scene_idx,
-                     *_cfg_outputs],
+                     *_cfg_outputs, new_music, new_name],
         )
 
         def on_save_config(comfyui_url, res_w, res_h, fps, img_wf, vid_wf, state):
@@ -779,13 +788,13 @@ def build_app() -> gr.Blocks:
             plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
             plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
             plan_img_wf, plan_vid_wf,
-            plan_notes, current_scene_idx,
+            plan_notes, plan_enabled, current_scene_idx,
         ]
 
         def load_plan_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", "", "", "", "", "", "", "", "", "", idx)
+                return (None, "", "", "", "", "", "", "", "", "", "", "", True, idx)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_plan_values(scene) + (idx,)
@@ -814,7 +823,7 @@ def build_app() -> gr.Blocks:
         # ============================================================
 
         def on_plan_save(idx, state, scene_id, section, lyrics, plot,
-                         img_p, img_n, vid_p, vid_n, img_wf, vid_wf, notes):
+                         img_p, img_n, vid_p, vid_n, img_wf, vid_wf, notes, enabled):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
@@ -829,6 +838,7 @@ def build_app() -> gr.Blocks:
             scene.image_workflow = img_wf or None
             scene.video_workflow = vid_wf or None
             scene.notes = notes
+            scene.enabled = enabled
             if scene.status == "empty" and plot:
                 scene.status = "plot_done"
             proj.save_scene(scene)
@@ -841,7 +851,7 @@ def build_app() -> gr.Blocks:
                 current_scene_idx, project_state,
                 plan_scene_id_disp, plan_section, plan_lyrics, plan_plot,
                 plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-                plan_img_wf, plan_vid_wf, plan_notes,
+                plan_img_wf, plan_vid_wf, plan_notes, plan_enabled,
             ],
             outputs=[plan_save_status, plan_scene_btns],
         )
@@ -995,13 +1005,13 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
-            gen_status_disp, current_scene_idx,
+            gen_status_disp, gen_enabled, current_scene_idx,
         ]
 
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", None, None, "", "", "", "", -1, -1, "", "", "", idx)
+                return (None, "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx,)
@@ -1027,7 +1037,7 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 生成・編集タブ - 保存
         # ============================================================
 
-        def on_gen_save(idx, state, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf):
+        def on_gen_save(idx, state, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, enabled):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
@@ -1040,6 +1050,7 @@ def build_app() -> gr.Blocks:
             scene.video_seed = int(vid_seed)
             scene.image_workflow = img_wf or None
             scene.video_workflow = vid_wf or None
+            scene.enabled = enabled
             proj.save_scene(scene)
             samples = _build_scene_samples(proj.scenes)
             return f"シーン {scene.scene_id} を保存しました", gr.update(samples=samples)
@@ -1049,7 +1060,7 @@ def build_app() -> gr.Blocks:
             inputs=[
                 current_scene_idx, project_state,
                 gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
+                gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf, gen_enabled,
             ],
             outputs=[gen_status_disp, gen_scene_btns],
         )

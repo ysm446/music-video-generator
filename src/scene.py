@@ -15,6 +15,8 @@ class Scene:
     scene_id: int
     start_time: float
     end_time: float
+    order: int = 0          # 再生順序（入れ替え・挿入時に変更）
+    enabled: bool = True    # Falseにするとバッチ生成・書き出しでスキップ
     section: str = ""
     lyrics: str = ""
     plot: str = ""
@@ -51,8 +53,11 @@ class Scene:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Scene":
-        """辞書からSceneを生成する。"""
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        """辞書からSceneを生成する。orderが未設定の場合はscene_idで補完する。"""
+        fields = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        if "order" not in fields:
+            fields["order"] = fields.get("scene_id", 0)
+        return cls(**fields)
 
     # ---- ファイル I/O ----
 
@@ -87,6 +92,8 @@ class Scene:
             "image_done": "🖼",
             "video_done": "✅",
         }
+        if not self.enabled:
+            return "—"
         return icons.get(self.status, "?")
 
 
@@ -105,7 +112,7 @@ def create_scenes(duration: float, scene_duration: int = 5) -> list[Scene]:
     scene_id = 1
     while t < duration:
         end = min(t + scene_duration, duration)
-        scenes.append(Scene(scene_id=scene_id, start_time=round(t, 2), end_time=round(end, 2)))
+        scenes.append(Scene(scene_id=scene_id, start_time=round(t, 2), end_time=round(end, 2), order=scene_id))
         t = end
         scene_id += 1
     return scenes
