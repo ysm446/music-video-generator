@@ -21,16 +21,22 @@ from src.video_export import VideoExporter
 
 # ---- 設定読込 ----
 
-CONFIG_PATH = Path("config.yaml")
-_WORKFLOWS_DIR = Path("workflows")
+# __file__ 基準の絶対パスにすることで、Gradio コールバック実行時に
+# CWD が一時ディレクトリに変わっても正しいパスを指せるようにする。
+_APP_DIR = Path(__file__).parent.resolve()
+CONFIG_PATH = _APP_DIR / "config.yaml"
+_WORKFLOWS_DIR = _APP_DIR / "workflows"
 
 
 def _list_workflows(kind: str) -> list[str]:
-    """workflows/{kind}/ フォルダ内の JSON ファイルパスをリストで返す。"""
+    """workflows/{kind}/ フォルダ内の JSON ファイルをアプリルートからの相対パスで返す。"""
     folder = _WORKFLOWS_DIR / kind
     if not folder.exists():
         return []
-    return sorted(str(p).replace("\\", "/") for p in folder.glob("*.json"))
+    return sorted(
+        str(p.relative_to(_APP_DIR)).replace("\\", "/")
+        for p in folder.glob("*.json")
+    )
 
 
 def _list_image_workflows() -> list[str]:
@@ -47,7 +53,10 @@ def _load_config() -> dict:
     return {}
 
 _cfg = _load_config()
-BASE_DIR = Path(_cfg.get("project", {}).get("base_dir", "projects"))
+_base_dir_cfg = _cfg.get("project", {}).get("base_dir", "projects")
+# 絶対パスが指定されていればそのまま使い、相対パスなら app.py のディレクトリを基準にする
+BASE_DIR = (Path(_base_dir_cfg) if Path(_base_dir_cfg).is_absolute()
+            else _APP_DIR / _base_dir_cfg)
 
 # ---- グローバル状態 ----
 # GradioのState経由で管理するが、バックグラウンドスレッドとの共有のため

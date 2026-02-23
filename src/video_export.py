@@ -32,17 +32,20 @@ class VideoExporter:
         proj = self.project
         output_path = proj.output_dir / output_filename
 
-        # 動画ファイルリストを収集（無効シーンはスキップ）
+        # 動画ファイルリストを収集（無効シーン・存在しないファイル・空ファイルはスキップ）
         video_files: list[Path] = []
         for scene in proj.scenes:
             if not scene.enabled:
                 continue
             vp = scene.video_path(proj.scene_dir(scene.scene_id))
-            if vp.exists():
+            if vp.exists() and vp.stat().st_size > 0:
                 video_files.append(vp)
 
         if not video_files:
-            raise RuntimeError("結合できる動画ファイルが存在しません")
+            raise RuntimeError("結合できる動画ファイルが存在しません（video_done のシーンがありません）")
+
+        # 出力ディレクトリを事前に作成
+        proj.output_dir.mkdir(parents=True, exist_ok=True)
 
         # concat リストファイルを一時ファイルに書き出し
         with tempfile.NamedTemporaryFile(

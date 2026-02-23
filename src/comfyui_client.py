@@ -39,8 +39,11 @@ class ComfyUIClient:
     # ---- ワークフロー読込 ----
 
     def load_workflow(self, workflow_path: str | Path) -> dict:
-        """ワークフローJSONを読み込む。"""
+        """ワークフローJSONを読み込む。相対パスの場合はアプリルートを基準に解決する。"""
         path = Path(workflow_path)
+        if not path.is_absolute():
+            # src/comfyui_client.py の2階層上がアプリルート
+            path = Path(__file__).parent.parent / path
         return json.loads(path.read_text(encoding="utf-8"))
 
     # ---- プロンプト投入 ----
