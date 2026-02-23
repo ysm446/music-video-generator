@@ -421,6 +421,12 @@ def create_generate_tab():
                 gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
 
                 with gr.Row():
+                    gen_move_up_btn = gr.Button("↑ 上へ", size="sm")
+                    gen_move_down_btn = gr.Button("↓ 下へ", size="sm")
+                    gen_insert_btn = gr.Button("＋ 後に挿入", size="sm")
+                    gen_delete_btn = gr.Button("🗑 削除", size="sm", variant="stop")
+
+                with gr.Row():
                     gen_regen_img_btn = gr.Button("画像だけ再生成")
                     gen_regen_vid_btn = gr.Button("動画だけ再生成")
                     gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
@@ -441,6 +447,7 @@ def create_generate_tab():
         gen_vid_extra_input, gen_vid_consult_btn,
         gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
         gen_enabled,
+        gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
     )
@@ -807,6 +814,7 @@ def build_app() -> gr.Blocks:
             gen_vid_extra_input, gen_vid_consult_btn,
             gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
             gen_enabled,
+            gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
@@ -1625,6 +1633,88 @@ def build_app() -> gr.Blocks:
             fn=lambda *a: on_regen(*a, target="both"),
             inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+        )
+
+
+        # ============================================================
+        # イベントハンドラ: 生成・編集タブ - シーン管理（移動・挿入・削除）
+        # ============================================================
+
+        delete_confirm_state = gr.State(False)
+
+        def _scene_manage_result(proj, new_idx, status_msg):
+            """シーン管理操作後の共通戻り値（gen_scene_outputs + sidebar + confirm）を組み立てる。"""
+            if proj.scenes:
+                new_idx = max(0, min(new_idx, len(proj.scenes) - 1))
+                vals = _scene_to_gen_values(proj.scenes[new_idx], proj) + (new_idx, [])
+                # index 14 は gen_status_disp: status文字列をメッセージで上書き
+                vals = vals[:14] + (status_msg,) + vals[15:]
+            else:
+                vals = (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "",
+                        status_msg, True, 0, [])
+            samples = _build_scene_samples(proj.scenes)
+            return vals + (gr.update(samples=samples), False)
+
+        def on_scene_move_up(idx, state):
+            proj = _project_from_state(state)
+            if proj is None:
+                return (gr.update(),) * 18 + (gr.update(), False)
+            moved = proj.move_scene_up(idx)
+            new_idx = idx - 1 if moved else idx
+            msg = "上に移動しました" if moved else "先頭のため移動できません"
+            return _scene_manage_result(proj, new_idx, msg)
+
+        def on_scene_move_down(idx, state):
+            proj = _project_from_state(state)
+            if proj is None:
+                return (gr.update(),) * 18 + (gr.update(), False)
+            moved = proj.move_scene_down(idx)
+            new_idx = idx + 1 if moved else idx
+            msg = "下に移動しました" if moved else "末尾のため移動できません"
+            return _scene_manage_result(proj, new_idx, msg)
+
+        def on_scene_insert(idx, state):
+            proj = _project_from_state(state)
+            if proj is None:
+                return (gr.update(),) * 18 + (gr.update(), False)
+            proj.insert_scene_after(idx)
+            return _scene_manage_result(proj, idx + 1, "新しいシーンを挿入しました")
+
+        def on_scene_delete(idx, state, confirm):
+            proj = _project_from_state(state)
+            if proj is None:
+                return (gr.update(),) * 18 + (gr.update(), False)
+            if not confirm:
+                # 1回目クリック: 警告表示のみ、確認待ち状態へ
+                no_op = [gr.update()] * 18
+                no_op[14] = "⚠️ 削除確認: もう一度「削除」を押すと削除します"
+                return tuple(no_op) + (gr.update(), True)
+            # 2回目クリック: 実際に削除
+            proj.delete_scene(idx)
+            new_idx = min(idx, len(proj.scenes) - 1) if proj.scenes else 0
+            return _scene_manage_result(proj, new_idx, "シーンを削除しました")
+
+        _scene_manage_outputs = gen_scene_outputs + [gen_scene_btns, delete_confirm_state]
+
+        gen_move_up_btn.click(
+            fn=on_scene_move_up,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_manage_outputs,
+        )
+        gen_move_down_btn.click(
+            fn=on_scene_move_down,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_manage_outputs,
+        )
+        gen_insert_btn.click(
+            fn=on_scene_insert,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_manage_outputs,
+        )
+        gen_delete_btn.click(
+            fn=on_scene_delete,
+            inputs=[current_scene_idx, project_state, delete_confirm_state],
+            outputs=_scene_manage_outputs,
         )
 
 

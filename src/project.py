@@ -132,6 +132,63 @@ class Project:
                 self.scenes[i] = scene
                 break
 
+    # ---- シーン順序・挿入・削除 ----
+
+    def _renormalize_order(self) -> None:
+        """self.scenes の現在のリスト順を元に order を 1, 2, 3... と正規化して保存する。"""
+        for i, scene in enumerate(self.scenes, 1):
+            scene.order = i
+            scene.save(self.scene_dir(scene.scene_id))
+
+    def move_scene_up(self, scene_idx: int) -> bool:
+        """scenes[scene_idx] を1つ前に移動する（order値を交換）。先頭の場合は False を返す。"""
+        if scene_idx <= 0 or scene_idx >= len(self.scenes):
+            return False
+        a, b = self.scenes[scene_idx], self.scenes[scene_idx - 1]
+        a.order, b.order = b.order, a.order
+        a.save(self.scene_dir(a.scene_id))
+        b.save(self.scene_dir(b.scene_id))
+        self.scenes.sort(key=lambda s: s.order)
+        return True
+
+    def move_scene_down(self, scene_idx: int) -> bool:
+        """scenes[scene_idx] を1つ後ろに移動する（order値を交換）。末尾の場合は False を返す。"""
+        if scene_idx < 0 or scene_idx >= len(self.scenes) - 1:
+            return False
+        a, b = self.scenes[scene_idx], self.scenes[scene_idx + 1]
+        a.order, b.order = b.order, a.order
+        a.save(self.scene_dir(a.scene_id))
+        b.save(self.scene_dir(b.scene_id))
+        self.scenes.sort(key=lambda s: s.order)
+        return True
+
+    def insert_scene_after(self, scene_idx: int) -> Scene:
+        """scenes[scene_idx] の直後に空シーンを挿入して返す。"""
+        new_id = max((s.scene_id for s in self.scenes), default=0) + 1
+        cur = self.scenes[scene_idx]
+        new_start = cur.end_time
+        new_end = round(new_start + self.scene_duration, 2)
+        new_scene = Scene(
+            scene_id=new_id,
+            start_time=new_start,
+            end_time=new_end,
+            order=cur.order + 1,  # _renormalize_order で上書きされる
+        )
+        new_scene.save(self.scene_dir(new_id))
+        self.scenes.insert(scene_idx + 1, new_scene)
+        self._renormalize_order()
+        return new_scene
+
+    def delete_scene(self, scene_idx: int) -> None:
+        """scenes[scene_idx] をディレクトリごと削除し、order を正規化する。"""
+        import shutil as _shutil
+        scene = self.scenes[scene_idx]
+        sd = self.scene_dir(scene.scene_id)
+        if sd.exists():
+            _shutil.rmtree(sd)
+        self.scenes.pop(scene_idx)
+        self._renormalize_order()
+
     # ---- 読込 ----
 
     @classmethod
