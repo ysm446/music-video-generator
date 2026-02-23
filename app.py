@@ -505,6 +505,7 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
         scene.video_seed,
         scene.image_workflow or "",
         scene.video_workflow or "",
+        scene.video_instruction,
         scene.status,
         scene.enabled,
     )
@@ -1274,13 +1275,14 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
+            gen_vid_extra_input,
             gen_status_disp, gen_enabled, current_scene_idx, gen_img_chatbot,
         ]
 
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx, [])
+                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", "", True, idx, [])
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx, [])
@@ -1306,7 +1308,7 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 生成・編集タブ - 保存
         # ============================================================
 
-        def on_gen_save(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, enabled):
+        def on_gen_save(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, vid_instr, enabled):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
@@ -1320,6 +1322,7 @@ def build_app() -> gr.Blocks:
             scene.video_seed = int(vid_seed)
             scene.image_workflow = img_wf or None
             scene.video_workflow = vid_wf or None
+            scene.video_instruction = vid_instr or ""
             scene.enabled = enabled
             proj.save_scene(scene)
             samples = _build_scene_samples(proj.scenes)
@@ -1331,7 +1334,8 @@ def build_app() -> gr.Blocks:
                 current_scene_idx, project_state,
                 gen_plot,
                 gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf, gen_enabled,
+                gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
+                gen_vid_extra_input, gen_enabled,
             ],
             outputs=[gen_status_disp, gen_scene_btns],
         )

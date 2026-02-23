@@ -28,6 +28,7 @@ class Scene:
     video_negative: str = ""
     video_seed: int = -1
     video_workflow: Optional[str] = None  # None = プロジェクトデフォルトを使用
+    video_instruction: str = ""  # LLM動画プロンプト生成時の追加指示
     status: str = "empty"   # empty / plot_done / image_done / video_done
     notes: str = ""
 

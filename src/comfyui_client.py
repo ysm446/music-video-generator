@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import random
 import shutil
 import time
 import urllib.parse
@@ -242,9 +243,9 @@ def _inject_image_params(
                 inputs["text"] = positive
 
         if ct in ("KSampler", "KSamplerAdvanced", "SamplerCustom"):
-            if seed >= 0:
-                inputs["seed"] = seed
-                inputs["noise_seed"] = seed
+            actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
+            inputs["seed"] = actual_seed
+            inputs["noise_seed"] = actual_seed
 
         if ct in ("EmptyLatentImage", "EmptySD3LatentImage"):
             inputs["width"] = width
@@ -281,9 +282,9 @@ def _inject_video_params(
                 inputs["text"] = positive
 
         if ct in ("KSampler", "KSamplerAdvanced", "SamplerCustom"):
-            if seed >= 0:
-                inputs["seed"] = seed
-                inputs["noise_seed"] = seed
+            actual_seed = seed if seed >= 0 else random.randint(0, 2**32 - 1)
+            inputs["seed"] = actual_seed
+            inputs["noise_seed"] = actual_seed
 
         # Override resolution for nodes that expose width/height directly.
         if "width" in inputs and "height" in inputs:
