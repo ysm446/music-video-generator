@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
 from typing import Optional
@@ -316,16 +317,27 @@ def create_generate_tab():
 
                 with gr.Tabs():
                     with gr.Tab("画像"):
-                        gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=2)
-                        gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
                         with gr.Row():
-                            gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0)
-                            gen_img_wf = gr.Dropdown(
-                                label="画像ワークフロー（空=プロジェクトデフォルト）",
-                                choices=[""] + _list_image_workflows(),
-                                value="",
-                                allow_custom_value=True,
-                            )
+                            with gr.Column(scale=3):
+                                gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=4)
+                                gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
+                                with gr.Row():
+                                    gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0)
+                                    gen_img_wf = gr.Dropdown(
+                                        label="画像ワークフロー（空=プロジェクトデフォルト）",
+                                        choices=[""] + _list_image_workflows(),
+                                        value="",
+                                        allow_custom_value=True,
+                                    )
+                            with gr.Column(scale=2):
+                                gen_img_chatbot = gr.Chatbot(label="LLM相談", height=260)
+                                with gr.Row():
+                                    gen_img_chat_input = gr.Textbox(
+                                        label="",
+                                        placeholder="画像プロンプトの修正指示を入力...",
+                                        scale=4,
+                                    )
+                                    gen_img_chat_send = gr.Button("送信", scale=1)
 
                     with gr.Tab("動画"):
                         gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
@@ -357,6 +369,7 @@ def create_generate_tab():
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
+        gen_img_chatbot, gen_img_chat_input, gen_img_chat_send,
         gen_enabled,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
@@ -558,6 +571,78 @@ def _llm_improve(scene_data, concept, refs, proj) -> dict:
     )
 
 
+def _build_image_prompt_consult_system_prompt(positive_prompt: str, negative_prompt: str) -> str:
+    return (
+        "あなたは画像生成のプロンプトエンジニアリングの専門家です。\n"
+        "ユーザーの意図を理解し、Stable Diffusion（Illustrious チェックポイント）向けの\n"
+        "高品質なプロンプトを提案してください。\n\n"
+        "現在のプロンプト:\n"
+        f"Positive: {positive_prompt}\n"
+        f"Negative: {negative_prompt}\n\n"
+        "【修正する場合の方針】\n"
+        "プロンプトの構成をなるべく変更せず、単語だけ置き換えること。\n"
+        "【ネガティブプロンプトの方針】\n"
+        "- ネガティブプロンプトは原則として空のままにすること。\n"
+        "- ユーザーが「〜を除外したい」「〜を出したくない」と明示的に求めた場合のみ追加すること。\n"
+        "- 追加する場合も 10 タグ以内に抑えること。\n\n"
+        "プロンプトを更新する場合は、返答の中に以下のフォーマットで含めてください:\n"
+        "[PROMPT_UPDATE]\n"
+        "Positive: <新しい positive プロンプト>\n"
+        "Negative: <新しい negative プロンプト>\n"
+        "最後に一言報告を添えてください。\n"
+        "[/PROMPT_UPDATE]"
+    )
+
+
+def _parse_prompt_update(text: str) -> Optional[tuple[str, str]]:
+    block = re.search(r"\[PROMPT_UPDATE\](.*?)\[/PROMPT_UPDATE\]", text, re.DOTALL)
+    if not block:
+        return None
+    body = block.group(1)
+    pos = re.search(r"Positive:\s*(.*)", body)
+    neg = re.search(r"Negative:\s*(.*)", body)
+    if not pos:
+        return None
+    positive = pos.group(1).strip()
+    negative = neg.group(1).strip() if neg else ""
+    return positive, negative
+
+
+def _build_image_prompt_consult_system_prompt_v2(positive_prompt: str, negative_prompt: str) -> str:
+    return (
+        "あなたは画像生成のプロンプトエンジニアリングの専門家です。\n"
+        "ユーザーの意図を理解し、Stable Diffusion（Illustrious チェックポイント）向けの\n"
+        "高品質なプロンプトを提案してください。\n\n"
+        "現在のプロンプト:\n"
+        f"Positive: {positive_prompt}\n"
+        f"Negative: {negative_prompt}\n\n"
+        "【修正する場合の方針】\n"
+        "プロンプトの構成をなるべく変更せず、単語だけ置き換えること。\n"
+        "【ネガティブプロンプトの方針】\n"
+        "- ネガティブプロンプトは原則として空のままにすること。\n"
+        "- ユーザーが「〜を除外したい」「〜を出したくない」と明示的に求めた場合のみ追加すること。\n"
+        "- 追加する場合も 10 タグ以内に抑えること。\n\n"
+        "この会話は画像プロンプト修正専用です。プロジェクト全体、動画、音楽、シーン構成には触れないでください。\n"
+        "必ずプロンプトを更新し、返答は以下フォーマットのみを出力してください。説明文は禁止:\n"
+        "[PROMPT_UPDATE]\n"
+        "Positive: <新しい positive プロンプト>\n"
+        "Negative: <新しい negative プロンプト>\n"
+        "[/PROMPT_UPDATE]"
+    )
+
+
+def _parse_prompt_update_v2(text: str) -> Optional[tuple[str, str]]:
+    block = re.search(r"\[PROMPT_UPDATE\](.*?)\[/PROMPT_UPDATE\]", text, re.DOTALL)
+    body = block.group(1) if block else text
+    pos = re.search(r"Positive:\s*(.*?)(?:\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE)
+    neg = re.search(r"Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE)
+    if pos:
+        positive = pos.group(1).strip()
+        negative = neg.group(1).strip() if neg else ""
+        return positive, negative
+    return None
+
+
 # ============================================================
 # メインアプリ構築
 # ============================================================
@@ -627,6 +712,7 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
+            gen_img_chatbot, gen_img_chat_input, gen_img_chat_send,
             gen_enabled,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
@@ -1105,16 +1191,16 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
-            gen_status_disp, gen_enabled, current_scene_idx,
+            gen_status_disp, gen_enabled, current_scene_idx, gen_img_chatbot,
         ]
 
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx)
+                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx, [])
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
-            return _scene_to_gen_values(scene, proj) + (idx,)
+            return _scene_to_gen_values(scene, proj) + (idx, [])
 
         gen_scene_btns.click(
             fn=lambda evt, state: load_gen_scene(evt, state),
@@ -1171,6 +1257,54 @@ def build_app() -> gr.Blocks:
         # ============================================================
         # イベントハンドラ: 生成・編集タブ - 個別再生成
         # ============================================================
+
+        def on_gen_img_chat_send(user_msg: str, history: list, state: dict, img_p: str, img_n: str):
+            if not user_msg.strip():
+                yield history or [], "", gr.update(), gr.update(), ""
+                return
+
+            proj = _project_from_state(state)
+            history = list(history or [])
+            system_prompt = _build_image_prompt_consult_system_prompt_v2(img_p or "", img_n or "")
+
+            # 修正専用ウィンドウとして、毎回「現在の画像プロンプト + 今回の指示」だけをLLMへ渡す
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ]
+
+            history.append({"role": "user", "content": user_msg})
+            history.append({"role": "assistant", "content": ""})
+            yield history, "", gr.update(), gr.update(), "LLM応答中..."
+
+            try:
+                for chunk in _llm_chat_stream(messages, proj):
+                    history[-1]["content"] += chunk
+                    yield history, "", gr.update(), gr.update(), "LLM応答中..."
+            except Exception as e:
+                history[-1]["content"] = f"LLMエラー: {e}"
+                yield history, "", gr.update(), gr.update(), "LLMエラー"
+                return
+
+            upd = _parse_prompt_update_v2(history[-1]["content"])
+            if upd:
+                new_pos, new_neg = upd
+                if not new_neg.strip():
+                    new_neg = img_n or ""
+                yield history, "", new_pos, new_neg, "画像プロンプトをLLM提案で更新しました"
+            else:
+                yield history, "", gr.update(), gr.update(), "回答を受信しました（プロンプト更新はなし）"
+
+        gen_img_chat_send.click(
+            fn=on_gen_img_chat_send,
+            inputs=[gen_img_chat_input, gen_img_chatbot, project_state, gen_img_prompt, gen_img_neg],
+            outputs=[gen_img_chatbot, gen_img_chat_input, gen_img_prompt, gen_img_neg, gen_status_disp],
+        )
+        gen_img_chat_input.submit(
+            fn=on_gen_img_chat_send,
+            inputs=[gen_img_chat_input, gen_img_chatbot, project_state, gen_img_prompt, gen_img_neg],
+            outputs=[gen_img_chatbot, gen_img_chat_input, gen_img_prompt, gen_img_neg, gen_status_disp],
+        )
 
         def _get_comfyui(proj: Project) -> ComfyUIClient:
             return ComfyUIClient(base_url=proj.comfyui_url)
