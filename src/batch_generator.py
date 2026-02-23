@@ -147,8 +147,8 @@ class BatchGenerator:
             positive_prompt=scene.image_prompt,
             negative_prompt=scene.image_negative,
             seed=scene.image_seed,
-            width=proj.resolution["width"],
-            height=proj.resolution["height"],
+            width=proj.image_resolution["width"],
+            height=proj.image_resolution["height"],
             dest_path=dest,
         )
 
@@ -165,6 +165,9 @@ class BatchGenerator:
             positive_prompt=scene.video_prompt,
             negative_prompt=scene.video_negative,
             seed=scene.video_seed,
-            fps=proj.fps,
+            width=proj.video_resolution["width"],
+            height=proj.video_resolution["height"],
+            fps=proj.video_fps,
+            frame_count=proj.video_frame_count,
             dest_path=dest,
         )

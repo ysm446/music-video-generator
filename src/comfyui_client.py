@@ -175,7 +175,10 @@ class ComfyUIClient:
         positive_prompt: str,
         negative_prompt: str,
         seed: int,
+        width: int,
+        height: int,
         fps: int,
+        frame_count: int,
         dest_path: Path,
         poll_interval: float = 2.0,
         timeout: float = 600.0,
@@ -188,7 +191,9 @@ class ComfyUIClient:
         upload_name = self._upload_image(input_image_path)
 
         workflow = self.load_workflow(workflow_path)
-        workflow = _inject_video_params(workflow, upload_name, positive_prompt, negative_prompt, seed, fps)
+        workflow = _inject_video_params(
+            workflow, upload_name, positive_prompt, negative_prompt, seed, width, height, fps, frame_count
+        )
 
         prompt_id = self.queue_prompt(workflow)
         result = self.wait_for_prompt(prompt_id, poll_interval, timeout)
@@ -254,7 +259,10 @@ def _inject_video_params(
     positive: str,
     negative: str,
     seed: int,
+    width: int,
+    height: int,
     fps: int,
+    frame_count: int,
 ) -> dict:
     """ワークフローの各ノードに動画生成パラメータを注入する。"""
     wf = copy.deepcopy(workflow)
@@ -277,8 +285,20 @@ def _inject_video_params(
                 inputs["seed"] = seed
                 inputs["noise_seed"] = seed
 
-        if ct in ("VHS_VideoCombine",):
+        # Override resolution for nodes that expose width/height directly.
+        if "width" in inputs and "height" in inputs:
+            inputs["width"] = width
+            inputs["height"] = height
+
+        # Override fps/frame-count for common video nodes.
+        if "frame_rate" in inputs:
             inputs["frame_rate"] = fps
+        if "fps" in inputs:
+            inputs["fps"] = fps
+        if "num_frames" in inputs:
+            inputs["num_frames"] = frame_count
+        if "length" in inputs:
+            inputs["length"] = frame_count
 
     return wf
 

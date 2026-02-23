@@ -21,7 +21,11 @@ class Project:
         duration: float = 0.0,
         scene_duration: int = 5,
         concept: str = "",
+        image_resolution: Optional[dict] = None,
+        video_resolution: Optional[dict] = None,
         resolution: Optional[dict] = None,
+        video_fps: int = 16,
+        video_frame_count: int = 81,
         fps: int = 16,
         music_file: str = "",
         comfyui_url: str = "http://localhost:8188",
@@ -36,7 +40,13 @@ class Project:
         self.duration = duration
         self.scene_duration = scene_duration
         self.concept = concept
-        self.resolution = resolution or {"width": 1280, "height": 720}
+        base_resolution = resolution or {"width": 1280, "height": 720}
+        self.image_resolution = image_resolution or dict(base_resolution)
+        self.video_resolution = video_resolution or dict(base_resolution)
+        # Backward-compatibility alias for legacy code/JSON
+        self.resolution = self.image_resolution
+        self.video_fps = int(video_fps)
+        self.video_frame_count = int(video_frame_count)
         self.fps = fps
         self.music_file = music_file
         self.comfyui_url = comfyui_url
@@ -98,7 +108,11 @@ class Project:
             "scene_duration": self.scene_duration,
             "scene_count": len(self.scenes),
             "concept": self.concept,
-            "resolution": self.resolution,
+            "resolution": self.image_resolution,
+            "image_resolution": self.image_resolution,
+            "video_resolution": self.video_resolution,
+            "video_fps": self.video_fps,
+            "video_frame_count": self.video_frame_count,
             "fps": self.fps,
             "comfyui_url": self.comfyui_url,
             "llm_url": self.llm_url,
@@ -139,6 +153,16 @@ class Project:
             duration=data.get("duration", 0.0),
             scene_duration=data.get("scene_duration", 5),
             concept=data.get("concept", ""),
+            image_resolution=data.get(
+                "image_resolution",
+                data.get("resolution", {"width": 1280, "height": 720}),
+            ),
+            video_resolution=data.get(
+                "video_resolution",
+                data.get("resolution", {"width": 1280, "height": 720}),
+            ),
+            video_fps=data.get("video_fps", data.get("fps", 16)),
+            video_frame_count=data.get("video_frame_count", 81),
             resolution=data.get("resolution", {"width": 1280, "height": 720}),
             fps=data.get("fps", 16),
             music_file=data.get("music_file", ""),

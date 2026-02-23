@@ -1,25 +1,20 @@
-# MV Generator 設定ファイル
-
 comfyui:
-  url: "http://localhost:8188"
-  image_workflow: "workflows/image/zimage_turbo.json"
-  video_workflow: "workflows/video/wan22_i2v.json"
-  poll_interval: 2.0       # ジョブ完了ポーリング間隔（秒）
-  timeout: 300             # タイムアウト（秒）
-
-llm:
-  url: "http://localhost:11434/v1"
-  model: "qwen3-vl"
-  api_key: "dummy"         # ローカルサーバーのためダミー
-  temperature: 0.7
-  max_tokens: 4096
-
-project:
-  base_dir: "projects"     # プロジェクト保存先ディレクトリ
-
+  image_workflow: workflows/image/image_z_image_turbo.json
+  poll_interval: 2.0
+  timeout: 300
+  url: http://localhost:8188
+  video_workflow: workflows/video/video_wan2_2_14B_i2v.json
 defaults:
-  scene_duration: 5        # シーン長さ（秒）
-  resolution:
-    width: 1280
-    height: 720
   fps: 16
+  resolution:
+    height: 720
+    width: 1280
+  scene_duration: 5
+llm:
+  api_key: dummy
+  max_tokens: 4096
+  model: qwen3-vl
+  temperature: 0.7
+  url: http://localhost:11434/v1
+project:
+  base_dir: projects

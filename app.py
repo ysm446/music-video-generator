@@ -118,17 +118,25 @@ def create_project_tab():
                 value=_cfg.get("comfyui", {}).get("url", "http://localhost:8188"),
             )
 
-        with gr.Row():
-            cfg_res_w = gr.Number(label="解像度 幅", value=1280, precision=0)
-            cfg_res_h = gr.Number(label="解像度 高さ", value=720, precision=0)
-            cfg_fps = gr.Number(label="FPS", value=16, precision=0)
+        default_img_res = _cfg.get("defaults", {}).get(
+            "image_resolution",
+            _cfg.get("defaults", {}).get("resolution", {"width": 1280, "height": 720}),
+        )
+        default_vid_res = _cfg.get("defaults", {}).get(
+            "video_resolution",
+            _cfg.get("defaults", {}).get("resolution", {"width": 640, "height": 480}),
+        )
+        default_vid_fps = _cfg.get("defaults", {}).get("video_fps", _cfg.get("defaults", {}).get("fps", 16))
+        default_vid_frames = _cfg.get("defaults", {}).get("video_frame_count", 81)
 
-        gr.Markdown("#### ワークフロー選択")
         with gr.Tabs():
-            with gr.Tab("画像ワークフロー"):
+            with gr.Tab("画像設定"):
+                with gr.Row():
+                    cfg_img_res_w = gr.Number(label="画像解像度 幅", value=default_img_res.get("width", 1280), precision=0)
+                    cfg_img_res_h = gr.Number(label="画像解像度 高さ", value=default_img_res.get("height", 720), precision=0)
                 with gr.Row():
                     cfg_img_wf = gr.Dropdown(
-                        label="ワークフローファイル (workflows/image/)",
+                        label="デフォルト画像ワークフロー (workflows/image/)",
                         choices=_list_image_workflows(),
                         value=_cfg.get("comfyui", {}).get(
                             "image_workflow", "workflows/image/zimage_turbo.json"
@@ -137,10 +145,17 @@ def create_project_tab():
                         scale=5,
                     )
                     cfg_img_wf_refresh = gr.Button("更新", scale=1, size="sm")
-            with gr.Tab("動画ワークフロー"):
+
+            with gr.Tab("動画設定"):
+                with gr.Row():
+                    cfg_vid_res_w = gr.Number(label="動画解像度 幅", value=default_vid_res.get("width", 640), precision=0)
+                    cfg_vid_res_h = gr.Number(label="動画解像度 高さ", value=default_vid_res.get("height", 480), precision=0)
+                with gr.Row():
+                    cfg_vid_fps = gr.Number(label="FPS", value=default_vid_fps, precision=0)
+                    cfg_vid_frame_count = gr.Number(label="フレーム数", value=default_vid_frames, precision=0)
                 with gr.Row():
                     cfg_vid_wf = gr.Dropdown(
-                        label="ワークフローファイル (workflows/video/)",
+                        label="デフォルト動画ワークフロー (workflows/video/)",
                         choices=_list_video_workflows(),
                         value=_cfg.get("comfyui", {}).get(
                             "video_workflow", "workflows/video/wan22_i2v.json"
@@ -156,7 +171,7 @@ def create_project_tab():
     return (
         new_name, new_music, new_scene_dur, new_create_btn, new_status,
         load_dropdown, load_refresh_btn, load_btn, load_status,
-        cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+        cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
         cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
         save_cfg_btn, save_cfg_status,
     )
@@ -202,7 +217,7 @@ def create_plan_tab():
                 gr.Markdown("### シーン編集")
                 with gr.Row():
                     with gr.Column(scale=1):
-                        plan_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
+                        plan_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0)
                         plan_time_disp = gr.Textbox(label="時間", interactive=False)
                     with gr.Column(scale=3):
                         plan_plot = gr.Textbox(
@@ -286,7 +301,7 @@ def create_generate_tab():
             with gr.Column(scale=4):
                 with gr.Row():
                     with gr.Column(scale=1):
-                        gen_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
+                        gen_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0)
                         gen_time_disp = gr.Textbox(label="時間", interactive=False)
                     with gr.Column(scale=3):
                         gen_plot = gr.Textbox(
@@ -299,28 +314,30 @@ def create_generate_tab():
                     gen_image_preview = gr.Image(label="生成画像", type="filepath")
                     gen_video_preview = gr.Video(label="生成動画")
 
-                gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=2)
-                gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
-                gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
-                gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
+                with gr.Tabs():
+                    with gr.Tab("画像"):
+                        gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=2)
+                        gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
+                        with gr.Row():
+                            gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0)
+                            gen_img_wf = gr.Dropdown(
+                                label="画像ワークフロー（空=プロジェクトデフォルト）",
+                                choices=[""] + _list_image_workflows(),
+                                value="",
+                                allow_custom_value=True,
+                            )
 
-                with gr.Row():
-                    gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0)
-                    gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0)
-
-                with gr.Row():
-                    gen_img_wf = gr.Dropdown(
-                        label="画像ワークフロー（空=プロジェクトデフォルト）",
-                        choices=[""] + _list_image_workflows(),
-                        value="",
-                        allow_custom_value=True,
-                    )
-                    gen_vid_wf = gr.Dropdown(
-                        label="動画ワークフロー（空=プロジェクトデフォルト）",
-                        choices=[""] + _list_video_workflows(),
-                        value="",
-                        allow_custom_value=True,
-                    )
+                    with gr.Tab("動画"):
+                        gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
+                        gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
+                        with gr.Row():
+                            gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0)
+                            gen_vid_wf = gr.Dropdown(
+                                label="動画ワークフロー（空=プロジェクトデフォルト）",
+                                choices=[""] + _list_video_workflows(),
+                                value="",
+                                allow_custom_value=True,
+                            )
 
                 gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
 
@@ -549,9 +566,24 @@ def _settings_to_cfg_values(s: dict) -> tuple:
     """settings 辞書をプロジェクトタブの cfg_* コンポーネント値のタプルに変換する。"""
     return (
         s.get("comfyui_url", settings_manager.DEFAULT_SETTINGS["comfyui_url"]),
-        s.get("resolution_w", settings_manager.DEFAULT_SETTINGS["resolution_w"]),
-        s.get("resolution_h", settings_manager.DEFAULT_SETTINGS["resolution_h"]),
-        s.get("fps", settings_manager.DEFAULT_SETTINGS["fps"]),
+        s.get(
+            "image_resolution_w",
+            s.get("resolution_w", settings_manager.DEFAULT_SETTINGS["image_resolution_w"]),
+        ),
+        s.get(
+            "image_resolution_h",
+            s.get("resolution_h", settings_manager.DEFAULT_SETTINGS["image_resolution_h"]),
+        ),
+        s.get(
+            "video_resolution_w",
+            s.get("resolution_w", settings_manager.DEFAULT_SETTINGS["video_resolution_w"]),
+        ),
+        s.get(
+            "video_resolution_h",
+            s.get("resolution_h", settings_manager.DEFAULT_SETTINGS["video_resolution_h"]),
+        ),
+        s.get("video_fps", s.get("fps", settings_manager.DEFAULT_SETTINGS["video_fps"])),
+        s.get("video_frame_count", settings_manager.DEFAULT_SETTINGS["video_frame_count"]),
         s.get("image_workflow", settings_manager.DEFAULT_SETTINGS["image_workflow"]),
         s.get("video_workflow", settings_manager.DEFAULT_SETTINGS["video_workflow"]),
         s.get("model", settings_manager.DEFAULT_SETTINGS["model"]),
@@ -572,7 +604,7 @@ def build_app() -> gr.Blocks:
         (
             new_name, new_music, new_scene_dur, new_create_btn, new_status,
             load_dropdown, load_refresh_btn, load_btn, load_status,
-            cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
             cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
             save_cfg_btn, save_cfg_status,
         ) = create_project_tab()
@@ -662,13 +694,27 @@ def build_app() -> gr.Blocks:
 
         # settings 読み書きで共通する cfg 出力コンポーネントリスト
         _cfg_outputs = [
-            cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
             cfg_img_wf, cfg_vid_wf, model_dropdown,
         ]
 
-        def on_create_project(name, music_path, scene_dur, comfyui_url, res_w, res_h, fps, img_wf, vid_wf, model):
+        def on_create_project(
+            name,
+            music_path,
+            scene_dur,
+            comfyui_url,
+            img_res_w,
+            img_res_h,
+            vid_res_w,
+            vid_res_h,
+            vid_fps,
+            vid_frame_count,
+            img_wf,
+            vid_wf,
+            model,
+        ):
             """新規プロジェクトを作成する。"""
-            _no_cfg = (gr.update(),) * 7
+            _no_cfg = (gr.update(),) * 10
             if not name:
                 return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg
             if not music_path:
@@ -685,8 +731,10 @@ def build_app() -> gr.Blocks:
                 base_dir=BASE_DIR,
                 duration=duration,
                 scene_duration=int(scene_dur),
-                resolution={"width": int(res_w), "height": int(res_h)},
-                fps=int(fps),
+                image_resolution={"width": int(img_res_w), "height": int(img_res_h)},
+                video_resolution={"width": int(vid_res_w), "height": int(vid_res_h)},
+                video_fps=int(vid_fps),
+                video_frame_count=int(vid_frame_count),
                 comfyui_url=comfyui_url,
                 image_workflow=img_wf,
                 video_workflow=vid_wf,
@@ -701,9 +749,12 @@ def build_app() -> gr.Blocks:
                 "comfyui_url": comfyui_url,
                 "image_workflow": img_wf,
                 "video_workflow": vid_wf,
-                "resolution_w": int(res_w),
-                "resolution_h": int(res_h),
-                "fps": int(fps),
+                "image_resolution_w": int(img_res_w),
+                "image_resolution_h": int(img_res_h),
+                "video_resolution_w": int(vid_res_w),
+                "video_resolution_h": int(vid_res_h),
+                "video_fps": int(vid_fps),
+                "video_frame_count": int(vid_frame_count),
                 "scene_duration": int(scene_dur),
                 "model": model,
             })
@@ -719,7 +770,7 @@ def build_app() -> gr.Blocks:
             fn=on_create_project,
             inputs=[
                 new_name, new_music, new_scene_dur,
-                cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+                cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
             outputs=[plan_scene_btns, gen_scene_btns, new_status, project_state, current_scene_idx,
@@ -733,7 +784,7 @@ def build_app() -> gr.Blocks:
 
         def on_load_project(name):
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
-            _no_cfg = (gr.update(),) * 7
+            _no_cfg = (gr.update(),) * 10
             if not name:
                 return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update()
             try:
@@ -759,7 +810,18 @@ def build_app() -> gr.Blocks:
                      *_cfg_outputs, new_music, new_name],
         )
 
-        def on_save_config(comfyui_url, res_w, res_h, fps, img_wf, vid_wf, state):
+        def on_save_config(
+            comfyui_url,
+            img_res_w,
+            img_res_h,
+            vid_res_w,
+            vid_res_h,
+            vid_fps,
+            vid_frame_count,
+            img_wf,
+            vid_wf,
+            state,
+        ):
             """設定を config.yaml とプロジェクトの settings.json に保存する。"""
             try:
                 # config.yaml（グローバルデフォルト）
@@ -767,8 +829,16 @@ def build_app() -> gr.Blocks:
                 cfg.setdefault("comfyui", {})["url"] = comfyui_url
                 cfg.setdefault("comfyui", {})["image_workflow"] = img_wf
                 cfg.setdefault("comfyui", {})["video_workflow"] = vid_wf
-                cfg.setdefault("defaults", {})["resolution"] = {"width": int(res_w), "height": int(res_h)}
-                cfg.setdefault("defaults", {})["fps"] = int(fps)
+                cfg.setdefault("defaults", {})["image_resolution"] = {
+                    "width": int(img_res_w),
+                    "height": int(img_res_h),
+                }
+                cfg.setdefault("defaults", {})["video_resolution"] = {
+                    "width": int(vid_res_w),
+                    "height": int(vid_res_h),
+                }
+                cfg.setdefault("defaults", {})["video_fps"] = int(vid_fps)
+                cfg.setdefault("defaults", {})["video_frame_count"] = int(vid_frame_count)
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                     yaml.dump(cfg, f, allow_unicode=True)
 
@@ -779,17 +849,23 @@ def build_app() -> gr.Blocks:
                     proj.comfyui_url = comfyui_url
                     proj.image_workflow = img_wf
                     proj.video_workflow = vid_wf
-                    proj.resolution = {"width": int(res_w), "height": int(res_h)}
-                    proj.fps = int(fps)
+                    proj.image_resolution = {"width": int(img_res_w), "height": int(img_res_h)}
+                    proj.video_resolution = {"width": int(vid_res_w), "height": int(vid_res_h)}
+                    proj.video_fps = int(vid_fps)
+                    proj.video_frame_count = int(vid_frame_count)
+                    proj.resolution = proj.image_resolution
                     proj.save()
 
                     settings_manager.save(proj.project_dir, {
                         "comfyui_url": comfyui_url,
                         "image_workflow": img_wf,
                         "video_workflow": vid_wf,
-                        "resolution_w": int(res_w),
-                        "resolution_h": int(res_h),
-                        "fps": int(fps),
+                        "image_resolution_w": int(img_res_w),
+                        "image_resolution_h": int(img_res_h),
+                        "video_resolution_w": int(vid_res_w),
+                        "video_resolution_h": int(vid_res_h),
+                        "video_fps": int(vid_fps),
+                        "video_frame_count": int(vid_frame_count),
                     })
                     return "設定を保存しました（config.yaml + settings.json）"
                 return "設定を保存しました（config.yaml）"
@@ -798,7 +874,7 @@ def build_app() -> gr.Blocks:
 
         save_cfg_btn.click(
             fn=on_save_config,
-            inputs=[cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps, cfg_img_wf, cfg_vid_wf,
+            inputs=[cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count, cfg_img_wf, cfg_vid_wf,
                     project_state],
             outputs=[save_cfg_status],
         )
