@@ -1,0 +1,11 @@
+gradio>=4.0.0
+mutagen>=1.47.0
+pyyaml>=6.0
+requests>=2.31.0
+openai>=1.0.0
+Pillow>=10.0.0
+# ローカル LLM（Qwen3-VL）用
+torch>=2.1.0
+transformers>=4.51.0
+accelerate>=0.27.0
+qwen-vl-utils>=0.0.8
