@@ -330,14 +330,15 @@ def create_generate_tab():
                                         allow_custom_value=True,
                                     )
                             with gr.Column(scale=2):
-                                gen_img_chatbot = gr.Chatbot(label="LLM相談", height=260)
+                                gr.Markdown("**LLM相談**")
+                                gen_img_chatbot = gr.Chatbot(label="", height=240, show_label=False)
+                                gen_img_chat_input = gr.Textbox(
+                                    label="",
+                                    placeholder="画像プロンプトの修正指示を入力...",
+                                )
                                 with gr.Row():
-                                    gen_img_chat_input = gr.Textbox(
-                                        label="",
-                                        placeholder="画像プロンプトの修正指示を入力...",
-                                        scale=4,
-                                    )
-                                    gen_img_chat_send = gr.Button("送信", scale=1)
+                                    gen_img_chat_send = gr.Button("送信", variant="primary", scale=3)
+                                    gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
 
                     with gr.Tab("動画"):
                         gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
@@ -369,7 +370,7 @@ def create_generate_tab():
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
-        gen_img_chatbot, gen_img_chat_input, gen_img_chat_send,
+        gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
         gen_enabled,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
@@ -610,37 +611,56 @@ def _parse_prompt_update(text: str) -> Optional[tuple[str, str]]:
 
 def _build_image_prompt_consult_system_prompt_v2(positive_prompt: str, negative_prompt: str) -> str:
     return (
-        "あなたは画像生成のプロンプトエンジニアリングの専門家です。\n"
-        "ユーザーの意図を理解し、Stable Diffusion（Illustrious チェックポイント）向けの\n"
-        "高品質なプロンプトを提案してください。\n\n"
-        "現在のプロンプト:\n"
-        f"Positive: {positive_prompt}\n"
-        f"Negative: {negative_prompt}\n\n"
-        "【修正する場合の方針】\n"
-        "プロンプトの構成をなるべく変更せず、単語だけ置き換えること。\n"
-        "【ネガティブプロンプトの方針】\n"
-        "- ネガティブプロンプトは原則として空のままにすること。\n"
-        "- ユーザーが「〜を除外したい」「〜を出したくない」と明示的に求めた場合のみ追加すること。\n"
-        "- 追加する場合も 10 タグ以内に抑えること。\n\n"
-        "この会話は画像プロンプト修正専用です。プロジェクト全体、動画、音楽、シーン構成には触れないでください。\n"
-        "必ずプロンプトを更新し、返答は以下フォーマットのみを出力してください。説明文は禁止:\n"
+        "You are an expert at Stable Diffusion / Z-Image Turbo prompt engineering.\n"
+        "The user will give you a modification instruction (possibly in Japanese).\n"
+        "Your ONLY job is to modify the current prompt according to the instruction and output the result.\n\n"
+        "Current prompt:\n"
+        f"Positive: {positive_prompt or '(empty)'}\n"
+        f"Negative: {negative_prompt or '(empty)'}\n\n"
+        "Rules:\n"
+        "- Only change what the user explicitly requests. Keep everything else exactly as-is.\n"
+        "- Negative prompt: keep it empty unless the user explicitly asks to exclude something.\n"
+        "- Do NOT add explanation, commentary, or any other text.\n\n"
+        "You MUST respond with ONLY the following block and nothing else:\n"
         "[PROMPT_UPDATE]\n"
-        "Positive: <新しい positive プロンプト>\n"
-        "Negative: <新しい negative プロンプト>\n"
+        "Positive: <updated positive prompt>\n"
+        "Negative: <updated negative prompt, or empty>\n"
         "[/PROMPT_UPDATE]"
     )
 
 
 def _parse_prompt_update_v2(text: str) -> Optional[tuple[str, str]]:
-    block = re.search(r"\[PROMPT_UPDATE\](.*?)\[/PROMPT_UPDATE\]", text, re.DOTALL)
-    body = block.group(1) if block else text
-    pos = re.search(r"Positive:\s*(.*?)(?:\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE)
-    neg = re.search(r"Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE)
+    """LLM応答から [PROMPT_UPDATE] ブロックを解析してプロンプトを取り出す。"""
+    # <think>...</think> ブロックを除去してから探す
+    stripped = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    block = re.search(r"\[PROMPT_UPDATE\](.*?)\[/PROMPT_UPDATE\]", stripped, re.DOTALL)
+    if not block:
+        # フォールバック: テキスト全体から "Positive:" を探す（厳密な行頭マッチのみ）
+        block = re.search(r"\[PROMPT_UPDATE\](.*?)\[/PROMPT_UPDATE\]", text, re.DOTALL)
+        if not block:
+            body = stripped
+        else:
+            body = block.group(1)
+    else:
+        body = block.group(1)
+    pos = re.search(r"^\s*Positive:\s*(.*?)(?=\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+    neg = re.search(r"^\s*Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
     if pos:
         positive = pos.group(1).strip()
         negative = neg.group(1).strip() if neg else ""
+        # ネガティブに "[/PROMPT_UPDATE]" が混入していれば除去
+        negative = re.sub(r"\[/?PROMPT_UPDATE\].*", "", negative, flags=re.DOTALL).strip()
         return positive, negative
     return None
+
+
+def _clean_llm_response_for_display(text: str) -> str:
+    """LLM応答の生テキストから表示用テキストを生成する。
+    <think> ブロックと [PROMPT_UPDATE] ブロックを除去する。
+    """
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"\[PROMPT_UPDATE\].*?\[/PROMPT_UPDATE\]", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
 
 
 # ============================================================
@@ -712,7 +732,7 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
-            gen_img_chatbot, gen_img_chat_input, gen_img_chat_send,
+            gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
             gen_enabled,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
@@ -1265,12 +1285,25 @@ def build_app() -> gr.Blocks:
 
             proj = _project_from_state(state)
             history = list(history or [])
-            system_prompt = _build_image_prompt_consult_system_prompt_v2(img_p or "", img_n or "")
 
-            # 修正専用ウィンドウとして、毎回「現在の画像プロンプト + 今回の指示」だけをLLMへ渡す
+            # 現在のプロンプト＋指示をひとつのユーザーメッセージにまとめてLLMへ渡す。
+            # system promptを使わずユーザーメッセージに文脈を埋め込むことで、
+            # LLMが創作的な応答をせず編集タスクとして解釈しやすくなる。
+            llm_user_content = (
+                "これは画像生成プロンプトの編集タスクです。創作的な解釈は不要です。\n\n"
+                "【現在のプロンプト】\n"
+                f"Positive: {img_p or ''}\n"
+                f"Negative: {img_n or ''}\n\n"
+                f"【編集指示】{user_msg}\n\n"
+                "指示された部分だけを変更し、それ以外は一切変えないでください。\n"
+                "以下のフォーマットのみで回答してください（説明・コメント禁止）:\n"
+                "[PROMPT_UPDATE]\n"
+                "Positive: <更新後のpositiveプロンプト>\n"
+                "Negative: <更新後のnegativeプロンプト、または空>\n"
+                "[/PROMPT_UPDATE]"
+            )
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
+                {"role": "user", "content": llm_user_content},
             ]
 
             history.append({"role": "user", "content": user_msg})
@@ -1286,13 +1319,27 @@ def build_app() -> gr.Blocks:
                 yield history, "", gr.update(), gr.update(), "LLMエラー"
                 return
 
-            upd = _parse_prompt_update_v2(history[-1]["content"])
+            raw_response = history[-1]["content"]
+            upd = _parse_prompt_update_v2(raw_response)
+
+            # チャット表示をクリーンにする（<think>ブロックと[PROMPT_UPDATE]タグを除去）
+            display_text = _clean_llm_response_for_display(raw_response)
+
             if upd:
                 new_pos, new_neg = upd
-                if not new_neg.strip():
+                # "(空)" "(empty)" 等のプレースホルダーを空文字に正規化
+                _placeholders = {"(空)", "（空）", "(empty)", "empty", "none", "(none)"}
+                if not new_neg.strip() or new_neg.strip().lower() in _placeholders:
                     new_neg = img_n or ""
+                # 表示: 思考テキスト(あれば) + 更新後プロンプト
+                summary = "プロンプトを更新しました。"
+                if display_text:
+                    summary = display_text
+                history[-1]["content"] = f"{summary}\n\n**Positive:** {new_pos}"
                 yield history, "", new_pos, new_neg, "画像プロンプトをLLM提案で更新しました"
             else:
+                # 更新ブロックなし: クリーンなテキストを表示
+                history[-1]["content"] = display_text or raw_response
                 yield history, "", gr.update(), gr.update(), "回答を受信しました（プロンプト更新はなし）"
 
         gen_img_chat_send.click(
@@ -1304,6 +1351,10 @@ def build_app() -> gr.Blocks:
             fn=on_gen_img_chat_send,
             inputs=[gen_img_chat_input, gen_img_chatbot, project_state, gen_img_prompt, gen_img_neg],
             outputs=[gen_img_chatbot, gen_img_chat_input, gen_img_prompt, gen_img_neg, gen_status_disp],
+        )
+        gen_img_chat_clear.click(
+            fn=lambda: [],
+            outputs=[gen_img_chatbot],
         )
 
         def _get_comfyui(proj: Project) -> ComfyUIClient:
