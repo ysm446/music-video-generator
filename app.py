@@ -66,6 +66,47 @@ def _get_audio_duration(path: str | Path) -> float:
         raise ValueError("音楽ファイルの長さを取得できませんでした")
     return float(audio.info.length)
 
+def _read_seed_from_png(img_path: str | Path) -> Optional[int]:
+    """ComfyUI が生成した PNG のメタデータからシード値を読み取る。
+
+    ComfyUI は PNG の tEXt チャンク "prompt" に API プロンプト JSON を埋め込む。
+    そこから KSampler 等のノードの seed / noise_seed を探して返す。
+    見つからない場合は None を返す。
+    """
+    try:
+        import json as _json
+        from PIL import Image as _PILImage
+        img = _PILImage.open(str(img_path))
+        prompt_str = img.info.get("prompt", "")
+        if not prompt_str:
+            return None
+        prompt_data = _json.loads(prompt_str)
+        for node in prompt_data.values():
+            if not isinstance(node, dict):
+                continue
+            inputs = node.get("inputs", {})
+            for key in ("seed", "noise_seed"):
+                val = inputs.get(key)
+                if isinstance(val, (int, float)) and int(val) >= 0:
+                    return int(val)
+    except Exception:
+        pass
+    return None
+
+
+def _read_seed_from_scene_json(scene_json_path: str | Path, key: str) -> Optional[int]:
+    """scene.json ファイルから指定キー（image_seed / video_seed）を読み取る。"""
+    try:
+        import json as _json
+        data = _json.loads(Path(scene_json_path).read_text(encoding="utf-8"))
+        val = data.get(key)
+        if isinstance(val, (int, float)):
+            return int(val)
+    except Exception:
+        pass
+    return None
+
+
 def _project_from_state(state: dict | None) -> Optional[Project]:
     """State辞書からProjectオブジェクトを復元する。"""
     if not state:
@@ -322,12 +363,15 @@ def create_generate_tab():
                                 gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=4)
                                 gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
                                 with gr.Row():
-                                    gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0)
+                                    gen_img_seed = gr.Number(label="画像シード(-1=ランダム)", value=-1, precision=0, scale=3)
+                                    gen_img_seed_rand_btn = gr.Button("🎲", scale=1, size="sm", min_width=44)
+                                    gen_img_seed_reload_btn = gr.Button("♻️", scale=1, size="sm", min_width=44)
                                     gen_img_wf = gr.Dropdown(
                                         label="画像ワークフロー（空=プロジェクトデフォルト）",
                                         choices=[""] + _list_image_workflows(),
                                         value="",
                                         allow_custom_value=True,
+                                        scale=4,
                                     )
                             with gr.Column(scale=2):
                                 gr.Markdown("**LLM相談**")
@@ -341,16 +385,29 @@ def create_generate_tab():
                                     gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
 
                     with gr.Tab("動画"):
-                        gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
-                        gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
                         with gr.Row():
-                            gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0)
-                            gen_vid_wf = gr.Dropdown(
-                                label="動画ワークフロー（空=プロジェクトデフォルト）",
-                                choices=[""] + _list_video_workflows(),
-                                value="",
-                                allow_custom_value=True,
-                            )
+                            with gr.Column(scale=3):
+                                gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=3)
+                                gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
+                                with gr.Row():
+                                    gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0, scale=3)
+                                    gen_vid_seed_rand_btn = gr.Button("🎲", scale=1, size="sm", min_width=44)
+                                    gen_vid_seed_reload_btn = gr.Button("♻️", scale=1, size="sm", min_width=44)
+                                    gen_vid_wf = gr.Dropdown(
+                                        label="動画ワークフロー（空=プロジェクトデフォルト）",
+                                        choices=[""] + _list_video_workflows(),
+                                        value="",
+                                        allow_custom_value=True,
+                                        scale=4,
+                                    )
+                            with gr.Column(scale=2):
+                                gr.Markdown("**LLMで動画プロンプト生成**")
+                                gen_vid_extra_input = gr.Textbox(
+                                    label="追加指示",
+                                    placeholder="動かしたい内容・雰囲気・カメラワーク等...",
+                                    lines=4,
+                                )
+                                gen_vid_consult_btn = gr.Button("生成", variant="secondary")
 
                 gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
 
@@ -371,6 +428,9 @@ def create_generate_tab():
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
         gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
+        gen_img_seed_rand_btn, gen_img_seed_reload_btn,
+        gen_vid_extra_input, gen_vid_consult_btn,
+        gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
         gen_enabled,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
@@ -733,6 +793,9 @@ def build_app() -> gr.Blocks:
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
             gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
+            gen_img_seed_rand_btn, gen_img_seed_reload_btn,
+            gen_vid_extra_input, gen_vid_consult_btn,
+            gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
             gen_enabled,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
@@ -1355,6 +1418,137 @@ def build_app() -> gr.Blocks:
         gen_img_chat_clear.click(
             fn=lambda: [],
             outputs=[gen_img_chatbot],
+        )
+
+        # シードボタン
+        gen_img_seed_rand_btn.click(fn=lambda: -1, outputs=[gen_img_seed])
+        gen_vid_seed_rand_btn.click(fn=lambda: -1, outputs=[gen_vid_seed])
+
+        def _reload_img_seed(idx: int, state: dict):
+            """生成済みPNGのメタデータからシード値を読み取る。失敗時はscene.jsonにフォールバック。"""
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return gr.update()
+            scene = proj.scenes[max(0, min(idx, len(proj.scenes) - 1))]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            img_path = scene.image_path(scene_dir)
+            if img_path.exists():
+                seed = _read_seed_from_png(img_path)
+                if seed is not None:
+                    return seed
+            # フォールバック: scene.json から読む
+            scene_json = scene_dir / "scene.json"
+            seed = _read_seed_from_scene_json(scene_json, "image_seed")
+            return seed if seed is not None else gr.update()
+
+        def _reload_vid_seed(idx: int, state: dict):
+            """scene.json からビデオシード値を読み取る（動画ファイルにはメタデータなし）。"""
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return gr.update()
+            scene = proj.scenes[max(0, min(idx, len(proj.scenes) - 1))]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            scene_json = scene_dir / "scene.json"
+            seed = _read_seed_from_scene_json(scene_json, "video_seed")
+            return seed if seed is not None else gr.update()
+
+        gen_img_seed_reload_btn.click(
+            fn=_reload_img_seed,
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_img_seed],
+        )
+        gen_vid_seed_reload_btn.click(
+            fn=_reload_vid_seed,
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_vid_seed],
+        )
+
+        # ============================================================
+        # イベントハンドラ: 生成・編集タブ - 動画プロンプトLLM生成
+        # ============================================================
+
+        def on_gen_vid_consult(instruction: str, state: dict, img_path: str, img_p: str, vid_p: str, vid_n: str):
+            """画像・画像プロンプト・追加指示を元にLLMが動画プロンプトを生成する。"""
+            if not instruction.strip():
+                yield gr.update(), gr.update(), "追加指示を入力してください"
+                return
+
+            proj = _project_from_state(state)
+            text_content = (
+                "これはWAN2.2 img2video向け動画プロンプトの生成タスクです。\n\n"
+                "【画像プロンプト（生成済み画像の内容）】\n"
+                f"{img_p or '(なし)'}\n\n"
+                f"【追加指示】{instruction}\n\n"
+                "添付画像と上記の情報をもとに、WAN2.2 img2video向けの動画プロンプトを英語で生成してください。\n"
+                "以下の3要素を含めてください:\n"
+                "- Scene: 場面・背景・雰囲気の描写\n"
+                "- Action: 被写体・人物の動き\n"
+                "- Camera: カメラワーク（zoom in/out, pan left/right, tracking shot 等）\n\n"
+                "以下のフォーマットのみで回答してください（説明不要）:\n"
+                "[VIDEO_PROMPT_UPDATE]\n"
+                "Prompt: <Scene: ..., Action: ..., Camera: ...>\n"
+                "Negative: <ネガティブプロンプト、または空>\n"
+                "[/VIDEO_PROMPT_UPDATE]"
+            )
+
+            # 画像がある場合は Vision で渡す
+            # ローカルモデル (transformers) は PIL 形式、API は base64 URL 形式
+            import base64 as _b64
+            if img_path and Path(img_path).exists():
+                try:
+                    if model_manager.is_loaded():
+                        from PIL import Image as _PILImage
+                        pil_img = _PILImage.open(img_path).convert("RGB")
+                        messages = [{"role": "user", "content": [
+                            {"type": "image", "image": pil_img},
+                            {"type": "text", "text": text_content},
+                        ]}]
+                    else:
+                        with open(img_path, "rb") as f:
+                            img_b64 = _b64.b64encode(f.read()).decode()
+                        ext = Path(img_path).suffix.lower().lstrip(".")
+                        mime = f"image/{ext}" if ext in ("png", "jpg", "jpeg", "webp") else "image/jpeg"
+                        messages = [{"role": "user", "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}},
+                            {"type": "text", "text": text_content},
+                        ]}]
+                except Exception:
+                    messages = [{"role": "user", "content": text_content}]
+            else:
+                messages = [{"role": "user", "content": text_content}]
+
+            yield gr.update(), gr.update(), "LLM応答中..."
+            full_response = ""
+            try:
+                for chunk in _llm_chat_stream(messages, proj):
+                    full_response += chunk
+            except Exception as e:
+                yield gr.update(), gr.update(), f"LLMエラー: {e}"
+                return
+
+            # パース
+            stripped = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+            block = re.search(r"\[VIDEO_PROMPT_UPDATE\](.*?)\[/VIDEO_PROMPT_UPDATE\]", stripped, re.DOTALL)
+            if block:
+                body = block.group(1)
+                prompt_m = re.search(r"^\s*Prompt:\s*(.*?)(?=\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+                neg_m = re.search(r"^\s*Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+                if prompt_m:
+                    new_prompt = prompt_m.group(1).strip()
+                    new_neg = neg_m.group(1).strip() if neg_m else ""
+                    new_neg = re.sub(r"\[/?VIDEO_PROMPT_UPDATE\].*", "", new_neg, flags=re.DOTALL).strip()
+                    _placeholders = {"(空)", "（空）", "(empty)", "empty", "none", "(none)"}
+                    if not new_neg or new_neg.lower() in _placeholders:
+                        new_neg = vid_n or ""
+                    yield new_prompt, new_neg, "動画プロンプトを更新しました"
+                    return
+
+            yield gr.update(), gr.update(), "動画プロンプトを更新できませんでした（フォーマット不一致）"
+
+        gen_vid_consult_btn.click(
+            fn=on_gen_vid_consult,
+            inputs=[gen_vid_extra_input, project_state, gen_image_preview, gen_img_prompt, gen_vid_prompt, gen_vid_neg],
+            outputs=[gen_vid_prompt, gen_vid_neg, gen_status_disp],
         )
 
         def _get_comfyui(proj: Project) -> ComfyUIClient:

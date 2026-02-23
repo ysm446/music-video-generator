@@ -6,10 +6,18 @@ comfyui:
   video_workflow: workflows/video/video_wan2_2_14B_i2v.json
 defaults:
   fps: 16
+  image_resolution:
+    height: 720
+    width: 1280
   resolution:
     height: 720
     width: 1280
   scene_duration: 5
+  video_fps: 16
+  video_frame_count: 81
+  video_resolution:
+    height: 360
+    width: 640
 llm:
   api_key: dummy
   max_tokens: 4096
