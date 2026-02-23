@@ -2,8 +2,8 @@
 
 comfyui:
   url: "http://localhost:8188"
-  image_workflow: "workflows/zimage_turbo.json"
-  video_workflow: "workflows/wan22_i2v.json"
+  image_workflow: "workflows/image/zimage_turbo.json"
+  video_workflow: "workflows/video/wan22_i2v.json"
   poll_interval: 2.0       # ジョブ完了ポーリング間隔（秒）
   timeout: 300             # タイムアウト（秒）
 

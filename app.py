@@ -21,6 +21,23 @@ from src.video_export import VideoExporter
 # ---- 設定読込 ----
 
 CONFIG_PATH = Path("config.yaml")
+_WORKFLOWS_DIR = Path("workflows")
+
+
+def _list_workflows(kind: str) -> list[str]:
+    """workflows/{kind}/ フォルダ内の JSON ファイルパスをリストで返す。"""
+    folder = _WORKFLOWS_DIR / kind
+    if not folder.exists():
+        return []
+    return sorted(str(p).replace("\\", "/") for p in folder.glob("*.json"))
+
+
+def _list_image_workflows() -> list[str]:
+    return _list_workflows("image")
+
+
+def _list_video_workflows() -> list[str]:
+    return _list_workflows("video")
 
 def _load_config() -> dict:
     if CONFIG_PATH.exists():
@@ -100,25 +117,38 @@ def create_project_tab():
                 label="ComfyUI URL",
                 value=_cfg.get("comfyui", {}).get("url", "http://localhost:8188"),
             )
-            cfg_llm_url = gr.Textbox(
-                label="LLM URL",
-                value=_cfg.get("llm", {}).get("url", "http://localhost:11434/v1"),
-            )
 
         with gr.Row():
             cfg_res_w = gr.Number(label="解像度 幅", value=1280, precision=0)
             cfg_res_h = gr.Number(label="解像度 高さ", value=720, precision=0)
             cfg_fps = gr.Number(label="FPS", value=16, precision=0)
 
-        with gr.Row():
-            cfg_img_wf = gr.Textbox(
-                label="画像ワークフローJSON",
-                value=_cfg.get("comfyui", {}).get("image_workflow", "workflows/zimage_turbo.json"),
-            )
-            cfg_vid_wf = gr.Textbox(
-                label="動画ワークフローJSON",
-                value=_cfg.get("comfyui", {}).get("video_workflow", "workflows/wan22_i2v.json"),
-            )
+        gr.Markdown("#### ワークフロー選択")
+        with gr.Tabs():
+            with gr.Tab("画像ワークフロー"):
+                with gr.Row():
+                    cfg_img_wf = gr.Dropdown(
+                        label="ワークフローファイル (workflows/image/)",
+                        choices=_list_image_workflows(),
+                        value=_cfg.get("comfyui", {}).get(
+                            "image_workflow", "workflows/image/zimage_turbo.json"
+                        ),
+                        allow_custom_value=True,
+                        scale=5,
+                    )
+                    cfg_img_wf_refresh = gr.Button("更新", scale=1, size="sm")
+            with gr.Tab("動画ワークフロー"):
+                with gr.Row():
+                    cfg_vid_wf = gr.Dropdown(
+                        label="ワークフローファイル (workflows/video/)",
+                        choices=_list_video_workflows(),
+                        value=_cfg.get("comfyui", {}).get(
+                            "video_workflow", "workflows/video/wan22_i2v.json"
+                        ),
+                        allow_custom_value=True,
+                        scale=5,
+                    )
+                    cfg_vid_wf_refresh = gr.Button("更新", scale=1, size="sm")
 
         save_cfg_btn = gr.Button("設定を保存")
         save_cfg_status = gr.Textbox(label="", interactive=False)
@@ -126,8 +156,9 @@ def create_project_tab():
     return (
         new_name, new_music, new_scene_dur, new_create_btn, new_status,
         load_dropdown, load_refresh_btn, load_btn, load_status,
-        cfg_comfyui_url, cfg_llm_url, cfg_res_w, cfg_res_h, cfg_fps,
-        cfg_img_wf, cfg_vid_wf, save_cfg_btn, save_cfg_status,
+        cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+        cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
+        save_cfg_btn, save_cfg_status,
     )
 
 
@@ -183,6 +214,20 @@ def create_plan_tab():
                     plan_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
                     plan_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
 
+                with gr.Row():
+                    plan_img_wf = gr.Dropdown(
+                        label="画像ワークフロー（空=プロジェクトデフォルト）",
+                        choices=[""] + _list_image_workflows(),
+                        value="",
+                        allow_custom_value=True,
+                    )
+                    plan_vid_wf = gr.Dropdown(
+                        label="動画ワークフロー（空=プロジェクトデフォルト）",
+                        choices=[""] + _list_video_workflows(),
+                        value="",
+                        allow_custom_value=True,
+                    )
+
                 plan_notes = gr.Textbox(label="メモ", lines=1)
 
                 with gr.Row():
@@ -197,6 +242,7 @@ def create_plan_tab():
         plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
         plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
         plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
+        plan_img_wf, plan_vid_wf,
         plan_notes, plan_save_btn, plan_consult_btn, plan_save_status,
     )
 
@@ -247,6 +293,20 @@ def create_generate_tab():
                     gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0)
 
                 with gr.Row():
+                    gen_img_wf = gr.Dropdown(
+                        label="画像ワークフロー（空=プロジェクトデフォルト）",
+                        choices=[""] + _list_image_workflows(),
+                        value="",
+                        allow_custom_value=True,
+                    )
+                    gen_vid_wf = gr.Dropdown(
+                        label="動画ワークフロー（空=プロジェクトデフォルト）",
+                        choices=[""] + _list_video_workflows(),
+                        value="",
+                        allow_custom_value=True,
+                    )
+
+                with gr.Row():
                     gen_regen_img_btn = gr.Button("画像だけ再生成")
                     gen_regen_vid_btn = gr.Button("動画だけ再生成")
                     gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
@@ -261,6 +321,7 @@ def create_generate_tab():
         gen_image_preview, gen_video_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
+        gen_img_wf, gen_vid_wf,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
     )
@@ -309,6 +370,8 @@ def _scene_to_plan_values(scene: Scene) -> tuple:
         scene.image_negative,
         scene.video_prompt,
         scene.video_negative,
+        scene.image_workflow or "",
+        scene.video_workflow or "",
         scene.notes,
     )
 
@@ -328,6 +391,8 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
         scene.video_negative,
         scene.image_seed,
         scene.video_seed,
+        scene.image_workflow or "",
+        scene.video_workflow or "",
         scene.status,
     )
 
@@ -399,13 +464,19 @@ def create_model_tab():
 
 def _llm_chat(messages: list[dict], proj: Optional[Project]) -> str:
     """ローカルモデルが loaded なら使用し、そうでなければ API を呼ぶ。"""
+    return "".join(_llm_chat_stream(messages, proj))
+
+
+def _llm_chat_stream(messages: list[dict], proj: Optional[Project]):
+    """ローカルモデル優先でストリーミングチャットを返すジェネレータ。"""
     if model_manager.is_loaded():
-        return model_manager.chat(messages)
+        yield from model_manager.chat_stream(messages)
+        return
     # API フォールバック
     llm_url = proj.llm_url if proj else _cfg.get("llm", {}).get("url", "http://localhost:11434/v1")
     llm_model = _cfg.get("llm", {}).get("model", "qwen3-vl")
     client = LLMClient(base_url=llm_url, model=llm_model)
-    return client.chat(messages)
+    yield from client.chat_stream(messages)
 
 
 def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj) -> list[dict]:
@@ -456,7 +527,6 @@ def _settings_to_cfg_values(s: dict) -> tuple:
     """settings 辞書をプロジェクトタブの cfg_* コンポーネント値のタプルに変換する。"""
     return (
         s.get("comfyui_url", settings_manager.DEFAULT_SETTINGS["comfyui_url"]),
-        s.get("llm_url", settings_manager.DEFAULT_SETTINGS["llm_url"]),
         s.get("resolution_w", settings_manager.DEFAULT_SETTINGS["resolution_w"]),
         s.get("resolution_h", settings_manager.DEFAULT_SETTINGS["resolution_h"]),
         s.get("fps", settings_manager.DEFAULT_SETTINGS["fps"]),
@@ -480,8 +550,9 @@ def build_app() -> gr.Blocks:
         (
             new_name, new_music, new_scene_dur, new_create_btn, new_status,
             load_dropdown, load_refresh_btn, load_btn, load_status,
-            cfg_comfyui_url, cfg_llm_url, cfg_res_w, cfg_res_h, cfg_fps,
-            cfg_img_wf, cfg_vid_wf, save_cfg_btn, save_cfg_status,
+            cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
+            cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
+            save_cfg_btn, save_cfg_status,
         ) = create_project_tab()
 
         (
@@ -490,6 +561,7 @@ def build_app() -> gr.Blocks:
             plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
             plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
             plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
+            plan_img_wf, plan_vid_wf,
             plan_notes, plan_save_btn, plan_consult_btn, plan_save_status,
         ) = create_plan_tab()
 
@@ -500,6 +572,7 @@ def build_app() -> gr.Blocks:
             gen_image_preview, gen_video_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
+            gen_img_wf, gen_vid_wf,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
@@ -519,15 +592,46 @@ def build_app() -> gr.Blocks:
         # ============================================================
 
         def on_app_load():
-            """アプリ起動時に最後のプロジェクトをドロップダウンで選択状態にする。"""
+            """アプリ起動時に最後のプロジェクト選択を復元し、保存済みモデルを自動ロードする。"""
             last = settings_manager.get_last_project()
             projects = list_projects(BASE_DIR)
+            dropdown_update = (
+                gr.update(choices=projects, value=last)
+                if last and last in projects
+                else gr.update(choices=projects)
+            )
+
+            # 前回のプロジェクトから保存済みモデルラベルを取得
+            model_label = None
             if last and last in projects:
-                return gr.update(choices=projects, value=last)
-            return gr.update(choices=projects)
+                s = settings_manager.load(BASE_DIR / last)
+                model_label = s.get("model")
 
-        demo.load(fn=on_app_load, outputs=[load_dropdown])
+            if not model_label or model_label not in model_manager.MODEL_PRESETS:
+                return dropdown_update, gr.update(), "未ロード"
 
+            model_id = model_manager.MODEL_PRESETS[model_label]
+
+            def _auto_load():
+                try:
+                    model_manager.load_model(model_id)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_auto_load, daemon=True).start()
+            return dropdown_update, gr.update(value=model_label), f"自動ロード中: {model_label} ..."
+
+        demo.load(fn=on_app_load, outputs=[load_dropdown, model_dropdown, model_status])
+
+        # ワークフロー一覧更新ボタン
+        cfg_img_wf_refresh.click(
+            fn=lambda: gr.update(choices=_list_image_workflows()),
+            outputs=[cfg_img_wf],
+        )
+        cfg_vid_wf_refresh.click(
+            fn=lambda: gr.update(choices=_list_video_workflows()),
+            outputs=[cfg_vid_wf],
+        )
 
         # ============================================================
         # イベントハンドラ: プロジェクトタブ
@@ -535,13 +639,13 @@ def build_app() -> gr.Blocks:
 
         # settings 読み書きで共通する cfg 出力コンポーネントリスト
         _cfg_outputs = [
-            cfg_comfyui_url, cfg_llm_url, cfg_res_w, cfg_res_h, cfg_fps,
+            cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
             cfg_img_wf, cfg_vid_wf, model_dropdown,
         ]
 
-        def on_create_project(name, music_path, scene_dur, comfyui_url, llm_url, res_w, res_h, fps, img_wf, vid_wf, model):
+        def on_create_project(name, music_path, scene_dur, comfyui_url, res_w, res_h, fps, img_wf, vid_wf, model):
             """新規プロジェクトを作成する。"""
-            _no_cfg = (gr.update(),) * 8
+            _no_cfg = (gr.update(),) * 7
             if not name:
                 return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg
             if not music_path:
@@ -561,7 +665,6 @@ def build_app() -> gr.Blocks:
                 resolution={"width": int(res_w), "height": int(res_h)},
                 fps=int(fps),
                 comfyui_url=comfyui_url,
-                llm_url=llm_url,
                 image_workflow=img_wf,
                 video_workflow=vid_wf,
             )
@@ -573,7 +676,6 @@ def build_app() -> gr.Blocks:
             # settings.json を保存
             settings_manager.save(proj.project_dir, {
                 "comfyui_url": comfyui_url,
-                "llm_url": llm_url,
                 "image_workflow": img_wf,
                 "video_workflow": vid_wf,
                 "resolution_w": int(res_w),
@@ -594,7 +696,7 @@ def build_app() -> gr.Blocks:
             fn=on_create_project,
             inputs=[
                 new_name, new_music, new_scene_dur,
-                cfg_comfyui_url, cfg_llm_url, cfg_res_w, cfg_res_h, cfg_fps,
+                cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps,
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
             outputs=[plan_scene_btns, gen_scene_btns, new_status, project_state, current_scene_idx,
@@ -608,7 +710,7 @@ def build_app() -> gr.Blocks:
 
         def on_load_project(name):
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
-            _no_cfg = (gr.update(),) * 8
+            _no_cfg = (gr.update(),) * 7
             if not name:
                 return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg
             try:
@@ -632,7 +734,7 @@ def build_app() -> gr.Blocks:
                      *_cfg_outputs],
         )
 
-        def on_save_config(comfyui_url, llm_url, res_w, res_h, fps, img_wf, vid_wf, state):
+        def on_save_config(comfyui_url, res_w, res_h, fps, img_wf, vid_wf, state):
             """設定を config.yaml とプロジェクトの settings.json に保存する。"""
             try:
                 # config.yaml（グローバルデフォルト）
@@ -640,7 +742,6 @@ def build_app() -> gr.Blocks:
                 cfg.setdefault("comfyui", {})["url"] = comfyui_url
                 cfg.setdefault("comfyui", {})["image_workflow"] = img_wf
                 cfg.setdefault("comfyui", {})["video_workflow"] = vid_wf
-                cfg.setdefault("llm", {})["url"] = llm_url
                 cfg.setdefault("defaults", {})["resolution"] = {"width": int(res_w), "height": int(res_h)}
                 cfg.setdefault("defaults", {})["fps"] = int(fps)
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -651,7 +752,6 @@ def build_app() -> gr.Blocks:
                 if proj:
                     settings_manager.save(proj.project_dir, {
                         "comfyui_url": comfyui_url,
-                        "llm_url": llm_url,
                         "image_workflow": img_wf,
                         "video_workflow": vid_wf,
                         "resolution_w": int(res_w),
@@ -665,7 +765,7 @@ def build_app() -> gr.Blocks:
 
         save_cfg_btn.click(
             fn=on_save_config,
-            inputs=[cfg_comfyui_url, cfg_llm_url, cfg_res_w, cfg_res_h, cfg_fps, cfg_img_wf, cfg_vid_wf,
+            inputs=[cfg_comfyui_url, cfg_res_w, cfg_res_h, cfg_fps, cfg_img_wf, cfg_vid_wf,
                     project_state],
             outputs=[save_cfg_status],
         )
@@ -678,13 +778,14 @@ def build_app() -> gr.Blocks:
         plan_scene_outputs = [
             plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
             plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
+            plan_img_wf, plan_vid_wf,
             plan_notes, current_scene_idx,
         ]
 
         def load_plan_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", "", "", "", "", "", "", "", idx)
+                return (None, "", "", "", "", "", "", "", "", "", "", "", idx)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_plan_values(scene) + (idx,)
@@ -712,7 +813,8 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 計画タブ - 保存
         # ============================================================
 
-        def on_plan_save(idx, state, scene_id, section, lyrics, plot, img_p, img_n, vid_p, vid_n, notes):
+        def on_plan_save(idx, state, scene_id, section, lyrics, plot,
+                         img_p, img_n, vid_p, vid_n, img_wf, vid_wf, notes):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
@@ -724,6 +826,8 @@ def build_app() -> gr.Blocks:
             scene.image_negative = img_n
             scene.video_prompt = vid_p
             scene.video_negative = vid_n
+            scene.image_workflow = img_wf or None
+            scene.video_workflow = vid_wf or None
             scene.notes = notes
             if scene.status == "empty" and plot:
                 scene.status = "plot_done"
@@ -736,7 +840,8 @@ def build_app() -> gr.Blocks:
             inputs=[
                 current_scene_idx, project_state,
                 plan_scene_id_disp, plan_section, plan_lyrics, plan_plot,
-                plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg, plan_notes,
+                plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
+                plan_img_wf, plan_vid_wf, plan_notes,
             ],
             outputs=[plan_save_status, plan_scene_btns],
         )
@@ -747,18 +852,24 @@ def build_app() -> gr.Blocks:
         # ============================================================
 
         def on_chat_send(user_msg: str, history: list, state: dict):
+            """ストリーミングでチャット応答を返すジェネレータ。"""
             if not user_msg.strip():
-                return history, ""
+                yield history or [], ""
+                return
             proj = _project_from_state(state)
-            history = history or []
+            history = list(history or [])
             history.append({"role": "user", "content": user_msg})
+            history.append({"role": "assistant", "content": ""})
+            # ユーザーメッセージを即座に反映し、入力欄をクリア
+            yield history, ""
             try:
-                messages = [{"role": m["role"], "content": m["content"]} for m in history]
-                response = _llm_chat(messages, proj)
+                messages = [{"role": m["role"], "content": m["content"]} for m in history[:-1]]
+                for chunk in _llm_chat_stream(messages, proj):
+                    history[-1]["content"] += chunk
+                    yield history, ""
             except Exception as e:
-                response = f"LLM接続エラー: {e}"
-            history.append({"role": "assistant", "content": response})
-            return history, ""
+                history[-1]["content"] = f"LLM接続エラー: {e}"
+                yield history, ""
 
         plan_chat_send.click(
             fn=on_chat_send,
@@ -882,13 +993,15 @@ def build_app() -> gr.Blocks:
             gen_scene_id_disp, gen_time_disp,
             gen_image_preview, gen_video_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-            gen_img_seed, gen_vid_seed, gen_status_disp, current_scene_idx,
+            gen_img_seed, gen_vid_seed,
+            gen_img_wf, gen_vid_wf,
+            gen_status_disp, current_scene_idx,
         ]
 
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", None, None, "", "", "", "", -1, -1, "", idx)
+                return (None, "", None, None, "", "", "", "", -1, -1, "", "", "", idx)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx,)
@@ -914,7 +1027,7 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 生成・編集タブ - 保存
         # ============================================================
 
-        def on_gen_save(idx, state, img_p, img_n, vid_p, vid_n, img_seed, vid_seed):
+        def on_gen_save(idx, state, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
@@ -925,6 +1038,8 @@ def build_app() -> gr.Blocks:
             scene.video_negative = vid_n
             scene.image_seed = int(img_seed)
             scene.video_seed = int(vid_seed)
+            scene.image_workflow = img_wf or None
+            scene.video_workflow = vid_wf or None
             proj.save_scene(scene)
             samples = _build_scene_samples(proj.scenes)
             return f"シーン {scene.scene_id} を保存しました", gr.update(samples=samples)
@@ -934,7 +1049,7 @@ def build_app() -> gr.Blocks:
             inputs=[
                 current_scene_idx, project_state,
                 gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                gen_img_seed, gen_vid_seed,
+                gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
             ],
             outputs=[gen_status_disp, gen_scene_btns],
         )
@@ -947,7 +1062,7 @@ def build_app() -> gr.Blocks:
         def _get_comfyui(proj: Project) -> ComfyUIClient:
             return ComfyUIClient(base_url=proj.comfyui_url)
 
-        def on_regen(idx, state, target, img_p, img_n, vid_p, vid_n, img_seed, vid_seed):
+        def on_regen(idx, state, target, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf):
             proj = _project_from_state(state)
             if proj is None:
                 return None, None, "プロジェクトが読み込まれていません", gr.update()
@@ -962,6 +1077,8 @@ def build_app() -> gr.Blocks:
             scene.video_negative = vid_n
             scene.image_seed = int(img_seed)
             scene.video_seed = int(vid_seed)
+            scene.image_workflow = img_wf or None
+            scene.video_workflow = vid_wf or None
             proj.save_scene(scene)
 
             gen = BatchGenerator(proj, comfyui)
@@ -982,25 +1099,24 @@ def build_app() -> gr.Blocks:
                 gr.update(samples=samples),
             )
 
+        _regen_inputs = [
+            current_scene_idx, project_state,
+            gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
+            gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
+        ]
         gen_regen_img_btn.click(
             fn=lambda *a: on_regen(*a, target="image"),
-            inputs=[current_scene_idx, project_state,
-                    gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                    gen_img_seed, gen_vid_seed],
+            inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_vid_btn.click(
             fn=lambda *a: on_regen(*a, target="video"),
-            inputs=[current_scene_idx, project_state,
-                    gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                    gen_img_seed, gen_vid_seed],
+            inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_both_btn.click(
             fn=lambda *a: on_regen(*a, target="both"),
-            inputs=[current_scene_idx, project_state,
-                    gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
-                    gen_img_seed, gen_vid_seed],
+            inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
         )
 
@@ -1126,6 +1242,12 @@ def build_app() -> gr.Blocks:
             outputs=[model_status, model_vram],
         )
 
+        # 起動時の自動ロード完了を検知するポーリングタイマー（2秒ごと）
+        gr.Timer(value=2.0, active=True).tick(
+            fn=on_model_vram_refresh,
+            outputs=[model_status, model_vram],
+        )
+
     return demo
 
 
@@ -1135,4 +1257,5 @@ def build_app() -> gr.Blocks:
 
 if __name__ == "__main__":
     app = build_app()
+    app.queue()
     app.launch(share=False, server_name="0.0.0.0", inbrowser=True)

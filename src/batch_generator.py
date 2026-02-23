@@ -135,8 +135,10 @@ class BatchGenerator:
     def _generate_image(self, scene: Scene) -> None:
         proj = self.project
         dest = scene.image_path(proj.scene_dir(scene.scene_id))
+        # シーン個別ワークフローが指定されていればそちらを優先
+        workflow = scene.image_workflow or proj.image_workflow
         self.comfyui.generate_image(
-            workflow_path=proj.image_workflow,
+            workflow_path=workflow,
             positive_prompt=scene.image_prompt,
             negative_prompt=scene.image_negative,
             seed=scene.image_seed,
@@ -150,8 +152,10 @@ class BatchGenerator:
         scene_dir = proj.scene_dir(scene.scene_id)
         image_path = scene.image_path(scene_dir)
         dest = scene.video_path(scene_dir)
+        # シーン個別ワークフローが指定されていればそちらを優先
+        workflow = scene.video_workflow or proj.video_workflow
         self.comfyui.generate_video(
-            workflow_path=proj.video_workflow,
+            workflow_path=workflow,
             input_image_path=image_path,
             positive_prompt=scene.video_prompt,
             negative_prompt=scene.video_negative,

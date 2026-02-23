@@ -15,8 +15,8 @@ from typing import Optional
 DEFAULT_SETTINGS: dict = {
     "comfyui_url": "http://localhost:8188",
     "llm_url": "http://localhost:11434/v1",
-    "image_workflow": "workflows/zimage_turbo.json",
-    "video_workflow": "workflows/wan22_i2v.json",
+    "image_workflow": "workflows/image/zimage_turbo.json",
+    "video_workflow": "workflows/video/wan22_i2v.json",
     "resolution_w": 1280,
     "resolution_h": 720,
     "fps": 16,

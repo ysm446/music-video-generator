@@ -21,9 +21,11 @@ class Scene:
     image_prompt: str = ""
     image_negative: str = ""
     image_seed: int = -1
+    image_workflow: Optional[str] = None  # None = プロジェクトデフォルトを使用
     video_prompt: str = ""
     video_negative: str = ""
     video_seed: int = -1
+    video_workflow: Optional[str] = None  # None = プロジェクトデフォルトを使用
     status: str = "empty"   # empty / plot_done / image_done / video_done
     notes: str = ""
 
