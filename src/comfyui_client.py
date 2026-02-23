@@ -18,18 +18,22 @@ class ComfyUIClient:
     """ComfyUI の REST API を介して画像・動画を生成するクライアント。"""
 
     def __init__(self, base_url: str = "http://localhost:8188") -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url.strip().rstrip("/")
         self.client_id = str(uuid.uuid4())
+        self._local_output_dir: Optional[Path] = None
 
     # ---- 接続確認 ----
 
     def is_available(self) -> bool:
         """ComfyUI サーバーへの接続を確認する。"""
-        try:
-            resp = requests.get(f"{self.base_url}/system_stats", timeout=5)
-            return resp.status_code == 200
-        except Exception:
-            return False
+        for endpoint in ("/system_stats", "/queue"):
+            try:
+                resp = requests.get(f"{self.base_url}{endpoint}", timeout=5)
+                if resp.status_code == 200:
+                    return True
+            except Exception:
+                continue
+        return False
 
     # ---- ワークフロー読込 ----
 
@@ -81,14 +85,56 @@ class ComfyUIClient:
         params = urllib.parse.urlencode({"filename": filename, "subfolder": subfolder, "type": "output"})
         url = f"{self.base_url}/view?{params}"
         resp = requests.get(url, timeout=60, stream=True)
+        if resp.status_code == 200:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return dest
+
+        local_src = self._resolve_local_output_file(filename, subfolder)
+        if local_src and local_src.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(local_src, dest)
+            return dest
+
         resp.raise_for_status()
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
         return dest
 
     # ---- 画像生成 ----
+
+    def _resolve_local_output_file(self, filename: str, subfolder: str) -> Optional[Path]:
+        output_dir = self._get_local_output_dir()
+        if output_dir is None:
+            return None
+
+        candidates = [
+            output_dir / subfolder / filename if subfolder else output_dir / filename,
+            output_dir / filename,
+        ]
+        for p in candidates:
+            try:
+                if p.exists():
+                    return p
+            except Exception:
+                continue
+        return None
+
+    def _get_local_output_dir(self) -> Optional[Path]:
+        if self._local_output_dir is not None:
+            return self._local_output_dir
+        try:
+            resp = requests.get(f"{self.base_url}/system_stats", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            argv = data.get("system", {}).get("argv", [])
+            if not argv:
+                return None
+            main_py = Path(argv[0])
+            self._local_output_dir = main_py.parent / "output"
+            return self._local_output_dir
+        except Exception:
+            return None
 
     def generate_image(
         self,
@@ -147,7 +193,7 @@ class ComfyUIClient:
         prompt_id = self.queue_prompt(workflow)
         result = self.wait_for_prompt(prompt_id, poll_interval, timeout)
 
-        video_info = _extract_first_video(result)
+        video_info = _extract_first_video_any(result)
         if video_info is None:
             raise RuntimeError("ComfyUI から動画が返されませんでした")
 
@@ -257,4 +303,29 @@ def _extract_first_video(history_entry: dict) -> Optional[dict]:
         gifs = node_output.get("gifs", [])
         if gifs:
             return gifs[0]
+    return None
+
+
+def _extract_first_video_any(history_entry: dict) -> Optional[dict]:
+    """ComfyUIの複数出力形式に対応して最初の動画情報を返す。"""
+    outputs = history_entry.get("outputs", {})
+    video_exts = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
+    for node_output in outputs.values():
+        videos = node_output.get("videos", [])
+        if videos and isinstance(videos[0], dict):
+            return videos[0]
+
+        gifs = node_output.get("gifs", [])
+        if gifs and isinstance(gifs[0], dict):
+            return gifs[0]
+
+        animated = node_output.get("animated", [])
+        if animated and isinstance(animated[0], dict):
+            return animated[0]
+
+        images = node_output.get("images", [])
+        for item in images:
+            name = str(item.get("filename", "")).lower()
+            if name.endswith(video_exts):
+                return item
     return None

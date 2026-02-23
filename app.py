@@ -200,11 +200,18 @@ def create_plan_tab():
 
                 gr.Markdown("---")
                 gr.Markdown("### シーン編集")
-                plan_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
-                plan_time_disp = gr.Textbox(label="時間", interactive=False)
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        plan_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
+                        plan_time_disp = gr.Textbox(label="時間", interactive=False)
+                    with gr.Column(scale=3):
+                        plan_plot = gr.Textbox(
+                            label="シーン説明（何を描くかの計画）",
+                            lines=3,
+                            placeholder="このシーンで描く内容を記入",
+                        )
                 plan_section = gr.Textbox(label="セクション")
                 plan_lyrics = gr.Textbox(label="歌詞")
-                plan_plot = gr.Textbox(label="プロット（日本語）", lines=3)
 
                 with gr.Row():
                     plan_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=2)
@@ -277,8 +284,16 @@ def create_generate_tab():
 
             # --- メインエリア ---
             with gr.Column(scale=4):
-                gen_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
-                gen_time_disp = gr.Textbox(label="時間", interactive=False)
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gen_scene_id_disp = gr.Number(label="シーンID", interactive=False, precision=0)
+                        gen_time_disp = gr.Textbox(label="時間", interactive=False)
+                    with gr.Column(scale=3):
+                        gen_plot = gr.Textbox(
+                            label="シーン説明（何を描くかの計画）",
+                            lines=3,
+                            placeholder="このシーンで描く内容を記入",
+                        )
 
                 with gr.Row():
                     gen_image_preview = gr.Image(label="生成画像", type="filepath")
@@ -320,7 +335,7 @@ def create_generate_tab():
     return (
         gen_scene_btns, gen_prev_btn, gen_next_btn,
         gen_batch_btn, gen_stop_btn, gen_progress,
-        gen_scene_id_disp, gen_time_disp,
+        gen_scene_id_disp, gen_time_disp, gen_plot,
         gen_image_preview, gen_video_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
@@ -388,6 +403,7 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
     return (
         scene.scene_id,
         f"{scene.start_time:.1f}s - {scene.end_time:.1f}s",
+        scene.plot,
         str(img_path) if img_path.exists() else None,
         str(vid_path) if vid_path.exists() else None,
         scene.image_prompt,
@@ -574,7 +590,7 @@ def build_app() -> gr.Blocks:
         (
             gen_scene_btns, gen_prev_btn, gen_next_btn,
             gen_batch_btn, gen_stop_btn, gen_progress,
-            gen_scene_id_disp, gen_time_disp,
+            gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
@@ -759,6 +775,14 @@ def build_app() -> gr.Blocks:
                 # プロジェクトの settings.json（プロジェクトが読み込まれている場合）
                 proj = _project_from_state(state)
                 if proj:
+                    # Generate tab reloads project.json, so persist these fields on Project too.
+                    proj.comfyui_url = comfyui_url
+                    proj.image_workflow = img_wf
+                    proj.video_workflow = vid_wf
+                    proj.resolution = {"width": int(res_w), "height": int(res_h)}
+                    proj.fps = int(fps)
+                    proj.save()
+
                     settings_manager.save(proj.project_dir, {
                         "comfyui_url": comfyui_url,
                         "image_workflow": img_wf,
@@ -1000,7 +1024,7 @@ def build_app() -> gr.Blocks:
         # ============================================================
 
         gen_scene_outputs = [
-            gen_scene_id_disp, gen_time_disp,
+            gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
@@ -1011,7 +1035,7 @@ def build_app() -> gr.Blocks:
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx)
+                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", True, idx)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx,)
@@ -1037,11 +1061,12 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 生成・編集タブ - 保存
         # ============================================================
 
-        def on_gen_save(idx, state, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, enabled):
+        def on_gen_save(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, enabled):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", gr.update()
             scene = proj.scenes[idx]
+            scene.plot = plot
             scene.image_prompt = img_p
             scene.image_negative = img_n
             scene.video_prompt = vid_p
@@ -1059,6 +1084,7 @@ def build_app() -> gr.Blocks:
             fn=on_gen_save,
             inputs=[
                 current_scene_idx, project_state,
+                gen_plot,
                 gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
                 gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf, gen_enabled,
             ],
@@ -1073,15 +1099,16 @@ def build_app() -> gr.Blocks:
         def _get_comfyui(proj: Project) -> ComfyUIClient:
             return ComfyUIClient(base_url=proj.comfyui_url)
 
-        def on_regen(idx, state, target, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf):
+        def on_regen(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, target="both"):
             proj = _project_from_state(state)
             if proj is None:
                 return None, None, "プロジェクトが読み込まれていません", gr.update()
             comfyui = _get_comfyui(proj)
             if not comfyui.is_available():
-                return None, None, "ComfyUIに接続できません", gr.update()
+                return None, None, f"ComfyUIに接続できません: {proj.comfyui_url}", gr.update()
 
             scene = proj.scenes[idx]
+            scene.plot = plot
             scene.image_prompt = img_p
             scene.image_negative = img_n
             scene.video_prompt = vid_p
@@ -1112,6 +1139,7 @@ def build_app() -> gr.Blocks:
 
         _regen_inputs = [
             current_scene_idx, project_state,
+            gen_plot,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
         ]
@@ -1143,7 +1171,7 @@ def build_app() -> gr.Blocks:
                 return "プロジェクトが読み込まれていません"
             comfyui = _get_comfyui(proj)
             if not comfyui.is_available():
-                return "ComfyUIに接続できません"
+                return f"ComfyUIに接続できません: {proj.comfyui_url}"
 
             with _batch_lock:
                 _batch_log = []
