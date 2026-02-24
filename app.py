@@ -1790,6 +1790,14 @@ def build_app() -> gr.Blocks:
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません"
+
+            # 一括生成前にローカルLLMをアンロードしてVRAMを解放する
+            try:
+                if model_manager.is_loaded():
+                    model_manager.unload_model()
+            except Exception:
+                pass
+
             comfyui = _get_comfyui(proj)
             if not comfyui.is_available():
                 return f"ComfyUIに接続できません: {proj.comfyui_url}"
