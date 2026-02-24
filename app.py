@@ -416,6 +416,10 @@ def create_generate_tab():
                     gen_regen_vid_final_btn = gr.Button("最終動画生成")
                     gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
                     gen_save_btn = gr.Button("保存", variant="primary")
+                with gr.Row():
+                    gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
+                    gen_delete_preview_btn = gr.Button("プレビュー動画を削除", variant="stop")
+                    gen_delete_final_btn = gr.Button("最終版動画を削除", variant="stop")
 
                 gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
 
@@ -434,6 +438,7 @@ def create_generate_tab():
         gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
         gen_enabled,
         gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
+        gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
     )
@@ -554,8 +559,10 @@ def create_model_tab():
         gr.Markdown("### モデル一覧")
         gr.Dataframe(
             value=[
+                ["qwen3-vl-2b (軽量)", "Qwen/Qwen3-VL-2B-Instruct", "~4.5GB", "~4GB VRAM", "公式・最軽量"],
                 ["qwen3-vl-4b (推奨)", "Qwen/Qwen3-VL-4B-Instruct", "~8.3GB", "~6GB VRAM", "公式・軽量・推奨"],
                 ["qwen3-vl-8b (高性能)", "Qwen/Qwen3-VL-8B-Instruct", "~16GB", "~10GB VRAM", "公式・高性能"],
+                ["huihui-qwen3-vl-2b-abliterated", "huihui-ai/Huihui-Qwen3-VL-2B-Instruct-abliterated", "~4.5GB", "~4GB VRAM", "検閲除去版・2B"],
                 ["huihui-qwen3-vl-4b-abliterated", "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated", "~8.3GB", "~6GB VRAM", "検閲除去版・4B"],
                 ["huihui-qwen3-vl-8b-abliterated", "huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated", "~16GB", "~10GB VRAM", "検閲除去版・8B"],
             ],
@@ -824,6 +831,7 @@ def build_app() -> gr.Blocks:
             gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
             gen_enabled,
             gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
+            gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
@@ -1627,6 +1635,65 @@ def build_app() -> gr.Blocks:
         gen_regen_both_btn.click(
             fn=lambda *a: on_regen(*a, target="both"),
             inputs=_regen_inputs,
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+        )
+
+        def _refresh_scene_status_from_files(scene: Scene, scene_dir: Path) -> None:
+            """ファイル実体に合わせて scene.status を更新する。"""
+            if scene.video_preview_path(scene_dir).exists():
+                scene.status = "video_done"
+            elif scene.image_path(scene_dir).exists():
+                scene.status = "image_done"
+            elif (scene.plot or "").strip():
+                scene.status = "plot_done"
+            else:
+                scene.status = "empty"
+
+        def on_delete_media(idx, state, media_type):
+            proj = _project_from_state(state)
+            if proj is None:
+                return None, None, None, "プロジェクトが読み込まれていません", gr.update()
+
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+
+            media_map = {
+                "image": scene.image_path(scene_dir),
+                "preview": scene.video_preview_path(scene_dir),
+                "final": scene.video_final_path(scene_dir),
+            }
+            target_path = media_map[media_type]
+
+            if target_path.exists():
+                target_path.unlink()
+                deleted_msg = f"{target_path.name} を削除しました"
+            else:
+                deleted_msg = f"{target_path.name} は存在しません"
+
+            _refresh_scene_status_from_files(scene, scene_dir)
+            proj.save_scene(scene)
+            samples = _build_scene_samples(proj.scenes)
+            return (
+                str(scene.image_path(scene_dir)) if scene.image_path(scene_dir).exists() else None,
+                str(scene.video_preview_path(scene_dir)) if scene.video_preview_path(scene_dir).exists() else None,
+                str(scene.video_final_path(scene_dir)) if scene.video_final_path(scene_dir).exists() else None,
+                deleted_msg,
+                gr.Dataset(samples=samples),
+            )
+
+        gen_delete_image_btn.click(
+            fn=lambda idx, st: on_delete_media(idx, st, "image"),
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+        )
+        gen_delete_preview_btn.click(
+            fn=lambda idx, st: on_delete_media(idx, st, "preview"),
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+        )
+        gen_delete_final_btn.click(
+            fn=lambda idx, st: on_delete_media(idx, st, "final"),
+            inputs=[current_scene_idx, project_state],
             outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
         )
 

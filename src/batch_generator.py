@@ -74,6 +74,10 @@ class BatchGenerator:
                         if on_progress:
                             on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像プロンプト未設定）")
                         continue
+                    if image_path.exists() and image_path.stat().st_size > 0:
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像あり）")
+                        continue
                     try:
                         if on_progress:
                             on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像生成中...")
@@ -92,6 +96,16 @@ class BatchGenerator:
                     if not (image_path.exists() and image_path.stat().st_size > 0):
                         if on_progress:
                             on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像未生成）")
+                        continue
+                    if video_quality == "final":
+                        existing_video = scene.video_final_path(scene_dir)
+                        skip_label = "最終版動画あり"
+                    else:
+                        existing_video = scene.video_preview_path(scene_dir)
+                        skip_label = "プレビュー動画あり"
+                    if existing_video.exists() and existing_video.stat().st_size > 0:
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（{skip_label}）")
                         continue
                 elif video_quality == "final":
                     # 最終版: video_final.mp4 が既に存在すればスキップ

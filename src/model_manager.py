@@ -24,8 +24,10 @@ except ImportError:
 # ---- モデルプリセット（prompt-assistant と同一リスト） ----
 
 MODEL_PRESETS: dict[str, str] = {
+    "qwen3-vl-2b (軽量)": "Qwen/Qwen3-VL-2B-Instruct",
     "qwen3-vl-4b (推奨)": "Qwen/Qwen3-VL-4B-Instruct",
     "qwen3-vl-8b (高性能)": "Qwen/Qwen3-VL-8B-Instruct",
+    "huihui-qwen3-vl-2b-abliterated": "huihui-ai/Huihui-Qwen3-VL-2B-Instruct-abliterated",
     "huihui-qwen3-vl-4b-abliterated": "huihui-ai/Huihui-Qwen3-VL-4B-Instruct-abliterated",
     "huihui-qwen3-vl-8b-abliterated": "huihui-ai/Huihui-Qwen3-VL-8B-Instruct-abliterated",
 }
