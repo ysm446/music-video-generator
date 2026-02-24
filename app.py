@@ -306,9 +306,10 @@ def create_generate_tab():
                 gen_next_btn = gr.Button("Next ▶")
 
                 gr.Markdown("---")
-                gen_batch_btn = gr.Button("一括生成 開始", variant="primary")
+                gen_batch_img_btn = gr.Button("画像の一括生成", variant="primary")
+                gen_batch_preview_btn = gr.Button("プレビュー動画の一括生成")
+                gen_batch_final_btn = gr.Button("最終版動画の一括生成", variant="secondary")
                 gen_stop_btn = gr.Button("停止")
-                gen_batch_final_btn = gr.Button("最終版一括生成", variant="secondary")
                 gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
 
             # --- メインエリア ---
@@ -325,8 +326,13 @@ def create_generate_tab():
                         )
 
                 with gr.Row():
-                    gen_image_preview = gr.Image(label="生成画像", type="filepath")
-                    gen_video_preview = gr.Video(label="生成動画")
+                    with gr.Tabs():
+                        with gr.Tab("画像"):
+                            gen_image_preview = gr.Image(label="生成画像", type="filepath")
+                        with gr.Tab("プレビュー動画"):
+                            gen_video_preview = gr.Video(label="プレビュー動画")
+                        with gr.Tab("最終版動画"):
+                            gen_video_final_preview = gr.Video(label="最終版動画")
 
                 with gr.Tabs():
                     with gr.Tab("画像"):
@@ -401,9 +407,9 @@ def create_generate_tab():
     return (
         gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
-        gen_batch_btn, gen_stop_btn, gen_batch_final_btn, gen_progress,
+        gen_batch_img_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
         gen_scene_id_disp, gen_time_disp, gen_plot,
-        gen_image_preview, gen_video_preview,
+        gen_image_preview, gen_video_preview, gen_video_final_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
@@ -460,12 +466,14 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
     scene_dir = proj.scene_dir(scene.scene_id)
     img_path = scene.image_path(scene_dir)
     vid_path = scene.video_path(scene_dir)
+    vid_final_path = scene.video_final_path(scene_dir)
     return (
         scene.scene_id,
         f"{scene.start_time:.1f}s - {scene.end_time:.1f}s",
         scene.plot,
         str(img_path) if img_path.exists() else None,
         str(vid_path) if vid_path.exists() else None,
+        str(vid_final_path) if vid_final_path.exists() else None,
         scene.image_prompt,
         scene.image_negative,
         scene.video_prompt,
@@ -789,9 +797,9 @@ def build_app() -> gr.Blocks:
         (
             gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
-            gen_batch_btn, gen_stop_btn, gen_batch_final_btn, gen_progress,
+            gen_batch_img_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
             gen_scene_id_disp, gen_time_disp, gen_plot,
-            gen_image_preview, gen_video_preview,
+            gen_image_preview, gen_video_preview, gen_video_final_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
@@ -1244,7 +1252,7 @@ def build_app() -> gr.Blocks:
 
         gen_scene_outputs = [
             gen_scene_id_disp, gen_time_disp, gen_plot,
-            gen_image_preview, gen_video_preview,
+            gen_image_preview, gen_video_preview, gen_video_final_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
@@ -1255,7 +1263,7 @@ def build_app() -> gr.Blocks:
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "", "", True, idx, [])
+                return (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", "", "", True, idx, [])
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx, [])
@@ -1539,10 +1547,10 @@ def build_app() -> gr.Blocks:
         def on_regen(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, target="both", video_quality="preview"):
             proj = _project_from_state(state)
             if proj is None:
-                return None, None, "プロジェクトが読み込まれていません", gr.update()
+                return None, None, None, "プロジェクトが読み込まれていません", gr.update()
             comfyui = _get_comfyui(proj)
             if not comfyui.is_available():
-                return None, None, f"ComfyUIに接続できません: {proj.comfyui_url}", gr.update()
+                return None, None, None, f"ComfyUIに接続できません: {proj.comfyui_url}", gr.update()
 
             scene = proj.scenes[idx]
             scene.plot = plot
@@ -1560,21 +1568,22 @@ def build_app() -> gr.Blocks:
             try:
                 gen.regenerate_scene(scene.scene_id, target=target, video_quality=video_quality)
             except Exception as e:
-                return None, None, f"生成エラー: {e}", gr.update()
+                return None, None, None, f"生成エラー: {e}", gr.update()
 
             updated = proj.scenes[idx]
             scene_dir = proj.scene_dir(updated.scene_id)
             img = updated.image_path(scene_dir)
-            vid = updated.video_preview_path(scene_dir)
+            preview_vid = updated.video_preview_path(scene_dir)
+            final_vid = updated.video_final_path(scene_dir)
             samples = _build_scene_samples(proj.scenes)
             status_msg = updated.status
             if video_quality == "final":
-                final_vid = updated.video_final_path(scene_dir)
                 if final_vid.exists():
                     status_msg += " (最終版あり)"
             return (
                 str(img) if img.exists() else None,
-                str(vid) if vid.exists() else None,
+                str(preview_vid) if preview_vid.exists() else None,
+                str(final_vid) if final_vid.exists() else None,
                 status_msg,
                 gr.Dataset(samples=samples),
             )
@@ -1588,22 +1597,22 @@ def build_app() -> gr.Blocks:
         gen_regen_img_btn.click(
             fn=lambda *a: on_regen(*a, target="image"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_vid_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="preview"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_vid_final_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_both_btn.click(
             fn=lambda *a: on_regen(*a, target="both"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
         )
 
 
@@ -1618,10 +1627,10 @@ def build_app() -> gr.Blocks:
             if proj.scenes:
                 new_idx = max(0, min(new_idx, len(proj.scenes) - 1))
                 vals = _scene_to_gen_values(proj.scenes[new_idx], proj) + (new_idx, [])
-                # index 14 は gen_status_disp: status文字列をメッセージで上書き
-                vals = vals[:14] + (status_msg,) + vals[15:]
+                # index 15 は gen_status_disp: status文字列をメッセージで上書き
+                vals = vals[:15] + (status_msg,) + vals[16:]
             else:
-                vals = (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "",
+                vals = (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", "",
                         status_msg, True, 0, [])
             samples = _build_scene_samples(proj.scenes)
             return vals + (gr.Dataset(samples=samples), False)
@@ -1629,7 +1638,7 @@ def build_app() -> gr.Blocks:
         def on_scene_move_up(idx, state):
             proj = _project_from_state(state)
             if proj is None:
-                return (gr.update(),) * 18 + (gr.update(), False)
+                return (gr.update(),) * len(gen_scene_outputs) + (gr.update(), False)
             moved = proj.move_scene_up(idx)
             new_idx = idx - 1 if moved else idx
             msg = "上に移動しました" if moved else "先頭のため移動できません"
@@ -1638,7 +1647,7 @@ def build_app() -> gr.Blocks:
         def on_scene_move_down(idx, state):
             proj = _project_from_state(state)
             if proj is None:
-                return (gr.update(),) * 18 + (gr.update(), False)
+                return (gr.update(),) * len(gen_scene_outputs) + (gr.update(), False)
             moved = proj.move_scene_down(idx)
             new_idx = idx + 1 if moved else idx
             msg = "下に移動しました" if moved else "末尾のため移動できません"
@@ -1647,18 +1656,18 @@ def build_app() -> gr.Blocks:
         def on_scene_insert(idx, state):
             proj = _project_from_state(state)
             if proj is None:
-                return (gr.update(),) * 18 + (gr.update(), False)
+                return (gr.update(),) * len(gen_scene_outputs) + (gr.update(), False)
             proj.insert_scene_after(idx)
             return _scene_manage_result(proj, idx + 1, "新しいシーンを挿入しました")
 
         def on_scene_delete(idx, state, confirm):
             proj = _project_from_state(state)
             if proj is None:
-                return (gr.update(),) * 18 + (gr.update(), False)
+                return (gr.update(),) * len(gen_scene_outputs) + (gr.update(), False)
             if not confirm:
                 # 1回目クリック: 警告表示のみ、確認待ち状態へ
-                no_op = [gr.update()] * 18
-                no_op[14] = "⚠️ 削除確認: もう一度「削除」を押すと削除します"
+                no_op = [gr.update()] * len(gen_scene_outputs)
+                no_op[15] = "⚠️ 削除確認: もう一度「削除」を押すと削除します"
                 return tuple(no_op) + (gr.update(), True)
             # 2回目クリック: 実際に削除
             proj.delete_scene(idx)
@@ -1693,7 +1702,7 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 生成・編集タブ - 一括生成
         # ============================================================
 
-        def on_batch_start(state):
+        def _start_batch(state, target: str, video_quality: str = "preview"):
             global _batch_gen, _batch_log
             proj = _project_from_state(state)
             if proj is None:
@@ -1716,8 +1725,18 @@ def build_app() -> gr.Blocks:
                 with _batch_lock:
                     _batch_log.append(f"[ERROR] {msg}")
 
-            _batch_gen.run_async(on_progress=on_progress, on_error=on_error)
-            return "一括生成を開始しました"
+            _batch_gen.run_async(on_progress=on_progress, on_error=on_error, target=target, video_quality=video_quality)
+            if target == "image":
+                return "画像の一括生成を開始しました"
+            if video_quality == "final":
+                return "最終版動画の一括生成を開始しました"
+            return "プレビュー動画の一括生成を開始しました"
+
+        def on_batch_image_start(state):
+            return _start_batch(state, target="image")
+
+        def on_batch_preview_start(state):
+            return _start_batch(state, target="video", video_quality="preview")
 
         def on_batch_stop():
             global _batch_gen
@@ -1731,30 +1750,10 @@ def build_app() -> gr.Blocks:
                 return "\n".join(_batch_log[-10:]) if _batch_log else "待機中..."
 
         def on_batch_final_start(state):
-            global _batch_gen, _batch_log
-            proj = _project_from_state(state)
-            if proj is None:
-                return "プロジェクトが読み込まれていません"
-            comfyui = ComfyUIClient(base_url=proj.comfyui_url)
-            if not comfyui.is_available():
-                return f"ComfyUIに接続できません: {proj.comfyui_url}"
+            return _start_batch(state, target="video", video_quality="final")
 
-            with _batch_lock:
-                _batch_log = []
-                _batch_gen = BatchGenerator(proj, comfyui)
-
-            def on_progress(sid, total, msg):
-                with _batch_lock:
-                    _batch_log.append(msg)
-
-            def on_error(sid, msg):
-                with _batch_lock:
-                    _batch_log.append(f"[ERROR] {msg}")
-
-            _batch_gen.run_async(on_progress=on_progress, on_error=on_error, video_quality="final")
-            return "最終版一括生成を開始しました"
-
-        gen_batch_btn.click(fn=on_batch_start, inputs=[project_state], outputs=[gen_progress])
+        gen_batch_img_btn.click(fn=on_batch_image_start, inputs=[project_state], outputs=[gen_progress])
+        gen_batch_preview_btn.click(fn=on_batch_preview_start, inputs=[project_state], outputs=[gen_progress])
         gen_stop_btn.click(fn=on_batch_stop, outputs=[gen_progress])
         gen_batch_final_btn.click(fn=on_batch_final_start, inputs=[project_state], outputs=[gen_progress])
 

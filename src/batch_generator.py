@@ -38,6 +38,7 @@ class BatchGenerator:
         self,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_error: Optional[Callable[[int, str], None]] = None,
+        target: str = "both",
         skip_video_done: bool = True,
         video_quality: str = "preview",
     ) -> None:
@@ -46,6 +47,7 @@ class BatchGenerator:
         Args:
             on_progress: (scene_id, total, message) を受け取るコールバック
             on_error: (scene_id, error_message) を受け取るコールバック
+            target: "image" / "video" / "both"
             skip_video_done: statusがvideo_doneのシーンをスキップするか（preview品質のみ有効）
             video_quality: "preview" または "final"
         """
@@ -64,8 +66,34 @@ class BatchGenerator:
                         on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（無効）")
                     continue
 
+                scene_dir = proj.scene_dir(scene.scene_id)
+                image_path = scene.image_path(scene_dir)
+
+                if target == "image":
+                    if not (scene.image_prompt or "").strip():
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像プロンプト未設定）")
+                        continue
+                    try:
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像生成中...")
+                        self._generate_image(scene)
+                        scene.status = "image_done"
+                        proj.save_scene(scene)
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
+                    except Exception as e:
+                        if on_error:
+                            on_error(scene.scene_id, f"画像生成エラー: {e}")
+                    continue
+
                 # スキップ判定
-                if video_quality == "final":
+                if target == "video":
+                    if not (image_path.exists() and image_path.stat().st_size > 0):
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像未生成）")
+                        continue
+                elif video_quality == "final":
                     # 最終版: video_final.mp4 が既に存在すればスキップ
                     if skip_video_done:
                         final_path = scene.video_final_path(proj.scene_dir(scene.scene_id))
@@ -122,12 +150,13 @@ class BatchGenerator:
         self,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_error: Optional[Callable[[int, str], None]] = None,
+        target: str = "both",
         video_quality: str = "preview",
     ) -> threading.Thread:
         """バックグラウンドスレッドで run() を実行する。"""
         thread = threading.Thread(
             target=self.run,
-            kwargs={"on_progress": on_progress, "on_error": on_error, "video_quality": video_quality},
+            kwargs={"on_progress": on_progress, "on_error": on_error, "target": target, "video_quality": video_quality},
             daemon=True,
         )
         thread.start()
