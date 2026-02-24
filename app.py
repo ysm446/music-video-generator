@@ -407,20 +407,21 @@ def create_generate_tab():
 
             # --- メインエリア ---
             with gr.Column(scale=4):
-                # ヘッダー行: シーン情報 + 有効フラグ + 保存
                 with gr.Row():
-                    gen_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0, scale=1)
-                    gen_time_disp = gr.Textbox(label="時間", interactive=False, scale=2)
-                    gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True, scale=2)
-                    gen_save_btn = gr.Button("保存", variant="primary", scale=1)
-
-                gen_plot = gr.Textbox(
-                    label="シーン説明（何を描くかの計画）",
-                    lines=3,
-                    placeholder="このシーンで描く内容を記入",
-                )
-
-                gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
+                    # 左: シーン情報・有効フラグ
+                    with gr.Column(scale=1):
+                        gen_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0)
+                        gen_time_disp = gr.Textbox(label="時間", interactive=False)
+                        gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
+                    # 右: シーン説明・ステータス・保存
+                    with gr.Column(scale=3):
+                        gen_plot = gr.Textbox(
+                            label="シーン説明（何を描くかの計画）",
+                            lines=3,
+                            placeholder="このシーンで描く内容を記入",
+                        )
+                        gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
+                        gen_save_btn = gr.Button("保存", variant="primary")
 
                 with gr.Accordion("シーン管理", open=False):
                     with gr.Row():
