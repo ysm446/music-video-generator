@@ -398,39 +398,45 @@ def create_generate_tab():
                 gen_prev_btn = gr.Button("◀ Prev")
                 gen_next_btn = gr.Button("Next ▶")
 
-                gr.Markdown("---")
-                gen_batch_img_btn = gr.Button("画像の一括生成", variant="primary")
-                gen_batch_preview_btn = gr.Button("プレビュー動画の一括生成")
-                gen_batch_final_btn = gr.Button("最終版動画の一括生成", variant="secondary")
-                gen_stop_btn = gr.Button("停止")
-                gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
+                with gr.Accordion("一括生成", open=False):
+                    gen_batch_img_btn = gr.Button("画像", variant="primary")
+                    gen_batch_preview_btn = gr.Button("プレビュー動画")
+                    gen_batch_final_btn = gr.Button("最終版動画", variant="secondary")
+                    gen_stop_btn = gr.Button("停止")
+                    gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
 
             # --- メインエリア ---
             with gr.Column(scale=4):
+                # ヘッダー行: シーン情報 + 有効フラグ + 保存
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        gen_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0)
-                        gen_time_disp = gr.Textbox(label="時間", interactive=False)
-                    with gr.Column(scale=3):
-                        gen_plot = gr.Textbox(
-                            label="シーン説明（何を描くかの計画）",
-                            lines=3,
-                            placeholder="このシーンで描く内容を記入",
-                        )
+                    gen_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0, scale=1)
+                    gen_time_disp = gr.Textbox(label="時間", interactive=False, scale=2)
+                    gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True, scale=2)
+                    gen_save_btn = gr.Button("保存", variant="primary", scale=1)
 
-                with gr.Row():
-                    with gr.Tabs():
-                        with gr.Tab("画像"):
-                            gen_image_preview = gr.Image(label="生成画像", type="filepath")
-                        with gr.Tab("プレビュー動画"):
-                            gen_video_preview = gr.Video(label="プレビュー動画")
-                        with gr.Tab("最終版動画"):
-                            gen_video_final_preview = gr.Video(label="最終版動画")
+                gen_plot = gr.Textbox(
+                    label="シーン説明（何を描くかの計画）",
+                    lines=3,
+                    placeholder="このシーンで描く内容を記入",
+                )
 
+                gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
+
+                with gr.Accordion("シーン管理", open=False):
+                    with gr.Row():
+                        gen_move_up_btn = gr.Button("↑ 上へ", size="sm")
+                        gen_move_down_btn = gr.Button("↓ 下へ", size="sm")
+                        gen_insert_btn = gr.Button("＋ 後に挿入", size="sm")
+                        gen_delete_btn = gr.Button("🗑 削除", size="sm", variant="stop")
+
+                # --- 統合タブ: 画像 / 動画 ---
                 with gr.Tabs():
+                    # ■ 画像タブ
                     with gr.Tab("画像"):
                         with gr.Row():
-                            with gr.Column(scale=3):
+                            with gr.Column(scale=1):
+                                gen_image_preview = gr.Image(label="生成画像", type="filepath")
+                            with gr.Column(scale=2):
                                 gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=4)
                                 gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
                                 with gr.Row():
@@ -457,62 +463,49 @@ def create_generate_tab():
                                     gen_img_use_saved_btn = gr.Button("選択画像を本番に設定", variant="secondary")
                                     gen_img_delete_saved_btn = gr.Button("選択画像を削除", variant="stop")
                                 gen_img_history_preview = gr.Image(label="選択中の保存画像", type="filepath")
-                            with gr.Column(scale=2):
-                                gr.Markdown("**LLM相談**")
-                                gen_img_chatbot = gr.Chatbot(label="", height=240, show_label=False)
-                                gen_img_chat_input = gr.Textbox(
-                                    label="",
-                                    placeholder="画像プロンプトの修正指示を入力...",
-                                )
-                                with gr.Row():
-                                    gen_img_chat_send = gr.Button("送信", variant="primary", scale=3)
-                                    gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
+                        with gr.Row():
+                            gen_regen_img_btn = gr.Button("画像を生成", variant="primary")
+                            gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
+                        with gr.Accordion("LLM相談", open=False):
+                            gen_img_chatbot = gr.Chatbot(label="", height=240, show_label=False)
+                            gen_img_chat_input = gr.Textbox(
+                                label="",
+                                placeholder="画像プロンプトの修正指示を入力...",
+                            )
+                            with gr.Row():
+                                gen_img_chat_send = gr.Button("送信", variant="primary", scale=3)
+                                gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
 
+                    # ■ 動画タブ
                     with gr.Tab("動画"):
                         with gr.Row():
-                            with gr.Column(scale=3):
-                                gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=3)
-                                gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
-                                with gr.Row():
-                                    gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0, scale=3)
-                                    gen_vid_seed_rand_btn = gr.Button("🎲", scale=1, size="sm", min_width=44)
-                                    gen_vid_seed_reload_btn = gr.Button("♻️", scale=1, size="sm", min_width=44)
-                                    gen_vid_wf = gr.Dropdown(
-                                        label="動画ワークフロー（空=プロジェクトデフォルト）",
-                                        choices=[""] + _list_video_workflows(),
-                                        value="",
-                                        allow_custom_value=True,
-                                        scale=4,
-                                    )
-                            with gr.Column(scale=2):
-                                gr.Markdown("**LLMで動画プロンプト生成**")
-                                gen_vid_extra_input = gr.Textbox(
-                                    label="追加指示",
-                                    placeholder="動かしたい内容・雰囲気・カメラワーク等...",
-                                    lines=4,
-                                )
-                                gen_vid_consult_btn = gr.Button("プロンプト生成", variant="secondary")
-
-                gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
-
-                with gr.Row():
-                    gen_move_up_btn = gr.Button("↑ 上へ", size="sm")
-                    gen_move_down_btn = gr.Button("↓ 下へ", size="sm")
-                    gen_insert_btn = gr.Button("＋ 後に挿入", size="sm")
-                    gen_delete_btn = gr.Button("🗑 削除", size="sm", variant="stop")
-
-                with gr.Row():
-                    gen_regen_img_btn = gr.Button("画像の生成")
-                    gen_regen_vid_btn = gr.Button("プレビュー動画再生成")
-                    gen_regen_vid_final_btn = gr.Button("最終動画生成")
-                    gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
-                    gen_save_btn = gr.Button("保存", variant="primary")
-                with gr.Row():
-                    gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
-                    gen_delete_preview_btn = gr.Button("プレビュー動画を削除", variant="stop")
-                    gen_delete_final_btn = gr.Button("最終版動画を削除", variant="stop")
-
-                gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
+                            gen_video_preview = gr.Video(label="プレビュー動画")
+                            gen_video_final_preview = gr.Video(label="最終版動画")
+                        gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=3)
+                        gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
+                        with gr.Row():
+                            gen_vid_seed = gr.Number(label="動画シード(-1=ランダム)", value=-1, precision=0, scale=3)
+                            gen_vid_seed_rand_btn = gr.Button("🎲", scale=1, size="sm", min_width=44)
+                            gen_vid_seed_reload_btn = gr.Button("♻️", scale=1, size="sm", min_width=44)
+                            gen_vid_wf = gr.Dropdown(
+                                label="動画ワークフロー（空=プロジェクトデフォルト）",
+                                choices=[""] + _list_video_workflows(),
+                                value="",
+                                allow_custom_value=True,
+                                scale=4,
+                            )
+                        with gr.Row():
+                            gen_regen_vid_btn = gr.Button("プレビュー動画を生成", variant="primary")
+                            gen_regen_vid_final_btn = gr.Button("最終版動画を生成", variant="secondary")
+                            gen_delete_preview_btn = gr.Button("プレビュー動画を削除", variant="stop")
+                            gen_delete_final_btn = gr.Button("最終版動画を削除", variant="stop")
+                        with gr.Accordion("LLMでプロンプト生成", open=False):
+                            gen_vid_extra_input = gr.Textbox(
+                                label="追加指示",
+                                placeholder="動かしたい内容・雰囲気・カメラワーク等...",
+                                lines=4,
+                            )
+                            gen_vid_consult_btn = gr.Button("プロンプト生成", variant="secondary")
 
     return (
         gen_tab,
@@ -531,7 +524,7 @@ def create_generate_tab():
         gen_enabled,
         gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
         gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
-        gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
+        gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
         gen_status_disp,
     )
 
@@ -930,7 +923,7 @@ def build_app() -> gr.Blocks:
             gen_enabled,
             gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
             gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
-            gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
+            gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
 
@@ -1731,11 +1724,6 @@ def build_app() -> gr.Blocks:
         )
         gen_regen_vid_final_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
-            inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
-        )
-        gen_regen_both_btn.click(
-            fn=lambda *a: on_regen(*a, target="both"),
             inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
