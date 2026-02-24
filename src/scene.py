@@ -18,7 +18,6 @@ class Scene:
     order: int = 0          # 再生順序（入れ替え・挿入時に変更）
     enabled: bool = True    # Falseにするとバッチ生成・書き出しでスキップ
     section: str = ""
-    lyrics: str = ""
     plot: str = ""
     image_prompt: str = ""
     image_negative: str = ""

@@ -21,7 +21,6 @@ class Project:
         duration: float = 0.0,
         scene_duration: int = 5,
         concept: str = "",
-        lyrics: str = "",
         image_resolution: Optional[dict] = None,
         video_resolution: Optional[dict] = None,
         resolution: Optional[dict] = None,
@@ -41,7 +40,6 @@ class Project:
         self.duration = duration
         self.scene_duration = scene_duration
         self.concept = concept
-        self.lyrics = lyrics
         base_resolution = resolution or {"width": 1280, "height": 720}
         self.image_resolution = image_resolution or dict(base_resolution)
         self.video_resolution = video_resolution or dict(base_resolution)
@@ -110,7 +108,6 @@ class Project:
             "scene_duration": self.scene_duration,
             "scene_count": len(self.scenes),
             "concept": self.concept,
-            "lyrics": self.lyrics,
             "resolution": self.image_resolution,
             "image_resolution": self.image_resolution,
             "video_resolution": self.video_resolution,
@@ -213,7 +210,6 @@ class Project:
             duration=data.get("duration", 0.0),
             scene_duration=data.get("scene_duration", 5),
             concept=data.get("concept", ""),
-            lyrics=data.get("lyrics", ""),
             image_resolution=data.get(
                 "image_resolution",
                 data.get("resolution", {"width": 1280, "height": 720}),

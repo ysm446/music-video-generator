@@ -166,13 +166,13 @@ def _stream_generate(inputs: dict, max_new_tokens: int = 512) -> Generator[str, 
 
 _MV_SYSTEM_PROMPT = (
     "あなたはミュージックビデオのディレクターです。"
-    "ユーザーの楽曲コンセプトや歌詞をもとに、映像表現について提案・相談に応じてください。"
+    "ユーザーの楽曲コンセプトをもとに、映像表現について提案・相談に応じてください。"
 )
 
 
 def chat_stream(
     messages: list[dict],
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 2048,
 ) -> Generator[str, None, None]:
     """汎用チャット（ストリーミング）。
 
@@ -186,14 +186,18 @@ def chat_stream(
     if not is_loaded():
         raise RuntimeError("モデルがロードされていません。モデル管理タブからロードしてください。")
 
-    full_messages = [{"role": "system", "content": _MV_SYSTEM_PROMPT}] + messages
+    # 呼び出し元がシステムメッセージを渡した場合はそれを使用し、なければデフォルトを先頭に追加
+    if messages and messages[0].get("role") == "system":
+        full_messages = messages
+    else:
+        full_messages = [{"role": "system", "content": _MV_SYSTEM_PROMPT}] + messages
     inputs = _build_inputs(full_messages)
     yield from _stream_generate(inputs, max_new_tokens)
 
 
 def chat(
     messages: list[dict],
-    max_new_tokens: int = 512,
+    max_new_tokens: int = 2048,
 ) -> str:
     """汎用チャット（非ストリーミング）。"""
     return "".join(chat_stream(messages, max_new_tokens))
@@ -205,22 +209,19 @@ def chat(
 
 _BULK_SYSTEM = (
     "あなたはミュージックビデオのディレクターです。"
-    "楽曲のコンセプトと歌詞をもとに、各シーンの映像プロンプトを JSON 形式で生成してください。"
-    "section, lyrics, plot は日本語で記述してください。"
+    "楽曲のコンセプトをもとに、各シーンの映像プロンプトを JSON 形式で生成してください。"
+    "section, plot は日本語で記述してください。"
     "image_prompt と video_prompt は英語で記述してください。"
 )
 
 _BULK_USER_TEMPLATE = """\
 コンセプト: {concept}
 
-歌詞:
-{lyrics}
-
 シーン数: {scene_count}（1シーン {scene_duration} 秒）
 scene_id は {start_id} 〜 {end_id} を使用すること。
 
 以下の JSON 配列形式で指定した scene_id 範囲のプロンプトを出力してください。
-各要素は scene_id, section, lyrics, plot,
+各要素は scene_id, section, plot,
 image_prompt, image_negative, video_prompt, video_negative を含めること。
 ```json
 [ ... ]
@@ -229,7 +230,6 @@ image_prompt, image_negative, video_prompt, video_negative を含めること。
 
 def generate_all_scene_prompts(
     concept: str,
-    lyrics: str,
     scene_count: int,
     scene_duration: int,
     start_scene_id: int = 1,
@@ -259,7 +259,6 @@ def generate_all_scene_prompts(
         "type": "text",
         "text": _BULK_USER_TEMPLATE.format(
             concept=concept,
-            lyrics=lyrics,
             scene_count=scene_count,
             scene_duration=scene_duration,
             start_id=start_scene_id,

@@ -241,15 +241,15 @@ def create_plan_tab():
             with gr.Column(scale=2):
                 gr.Markdown("### LLMチャット（コンセプト相談）")
                 plan_chatbot = gr.Chatbot(height=300)
+                plan_chat_input = gr.Textbox(
+                    label="メッセージ", placeholder="コンセプトについて質問...", lines=2
+                )
                 with gr.Row():
-                    plan_chat_input = gr.Textbox(
-                        label="", placeholder="コンセプトや歌詞について質問...", scale=4
-                    )
-                    plan_chat_send = gr.Button("送信", scale=1)
+                    plan_chat_send = gr.Button("送信", variant="primary", scale=3)
+                    plan_chat_clear = gr.Button("🗑 クリア", scale=1)
                 plan_concept_input = gr.Textbox(label="全体コンセプト（保存用）", lines=2)
-                plan_lyrics_input = gr.Textbox(label="歌詞（任意）", lines=3)
                 plan_bulk_btn = gr.Button("全シーンを一括提案（Qwen）", variant="secondary")
-                plan_bulk_status = gr.Textbox(label="", interactive=False)
+                plan_bulk_status = gr.Textbox(label="一括提案ステータス", interactive=False, show_label=True)
 
             # --- 右カラム: シーン計画一覧 ---
             with gr.Column(scale=3):
@@ -265,11 +265,11 @@ def create_plan_tab():
                 )
                 with gr.Row():
                     plan_save_all_btn = gr.Button("全て保存（コンセプト＋シーン計画）", variant="primary")
-                plan_save_all_status = gr.Textbox(label="", interactive=False)
+                plan_save_all_status = gr.Textbox(label="保存ステータス", interactive=False)
 
     return (
-        plan_chatbot, plan_chat_input, plan_chat_send,
-        plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
+        plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
+        plan_concept_input, plan_bulk_btn, plan_bulk_status,
         plan_scene_df, plan_save_all_btn, plan_save_all_status,
     )
 
@@ -281,7 +281,7 @@ def create_plan_tab():
 def create_generate_tab():
     """生成・編集タブのUIを定義する。"""
 
-    with gr.Tab("生成・編集"):
+    with gr.Tab("生成・編集") as gen_tab:
         with gr.Row():
             # --- サイドバー ---
             with gr.Column(scale=1, min_width=140):
@@ -388,6 +388,7 @@ def create_generate_tab():
                 gen_status_disp = gr.Textbox(label="ステータス", interactive=False)
 
     return (
+        gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
         gen_batch_btn, gen_stop_btn, gen_progress,
         gen_scene_id_disp, gen_time_disp, gen_plot,
@@ -552,13 +553,12 @@ def _llm_chat_stream(messages: list[dict], proj: Optional[Project]):
     yield from client.chat_stream(messages)
 
 
-def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj,
+def _llm_bulk(concept, scene_count, scene_duration, refs, proj,
               start_scene_id: int = 1) -> list[dict]:
     """全シーン一括提案をローカル or API で実行する。"""
     if model_manager.is_loaded():
         return model_manager.generate_all_scene_prompts(
             concept=concept,
-            lyrics=lyrics,
             scene_count=scene_count,
             scene_duration=scene_duration,
             start_scene_id=start_scene_id,
@@ -569,7 +569,6 @@ def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj,
     client = LLMClient(base_url=llm_url, model=llm_model)
     return client.generate_all_scene_prompts(
         concept=concept,
-        lyrics=lyrics,
         scene_count=scene_count,
         scene_duration=scene_duration,
         start_scene_id=start_scene_id,
@@ -593,6 +592,29 @@ def _llm_improve(scene_data, concept, refs, proj) -> dict:
         concept=concept,
         reference_images=refs if refs else None,
     )
+
+
+def _build_plan_chat_system(proj: Optional[Project]) -> str:
+    """計画タブのLLMチャット用システムプロンプトを構築する。
+    プロジェクトのコンセプトと既存シーン計画をコンテキストとして含める。
+    """
+    lines = [
+        "あなたはミュージックビデオのディレクターです。",
+        "ユーザーの楽曲コンセプトをもとに、映像表現について提案・相談に応じてください。",
+    ]
+    if proj:
+        if proj.concept:
+            lines.append(f"\n【全体コンセプト】\n{proj.concept}")
+        if proj.scenes:
+            lines.append("\n【現在のシーン計画】")
+            for s in proj.scenes:
+                info = f"  シーン{s.scene_id}（{s.start_time:.1f}s-{s.end_time:.1f}s）"
+                if s.section:
+                    info += f" [{s.section}]"
+                if s.plot:
+                    info += f": {s.plot}"
+                lines.append(info)
+    return "\n".join(lines)
 
 
 def _build_image_prompt_consult_system_prompt(positive_prompt: str, negative_prompt: str) -> str:
@@ -738,12 +760,13 @@ def build_app() -> gr.Blocks:
         ) = create_project_tab()
 
         (
-            plan_chatbot, plan_chat_input, plan_chat_send,
-            plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
+            plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
+            plan_concept_input, plan_bulk_btn, plan_bulk_status,
             plan_scene_df, plan_save_all_btn, plan_save_all_status,
         ) = create_plan_tab()
 
         (
+            gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
             gen_batch_btn, gen_stop_btn, gen_progress,
             gen_scene_id_disp, gen_time_disp, gen_plot,
@@ -893,7 +916,7 @@ def build_app() -> gr.Blocks:
             samples = _build_scene_samples(proj.scenes)
             msg = f"プロジェクト '{name}' を作成しました（{len(proj.scenes)}シーン, {duration:.1f}秒）"
             s = settings_manager.load(proj.project_dir)
-            return _build_plan_df(proj.scenes), samples, msg, state, 0, *_settings_to_cfg_values(s)
+            return _build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0, *_settings_to_cfg_values(s)
 
         new_create_btn.click(
             fn=on_create_project,
@@ -915,11 +938,11 @@ def build_app() -> gr.Blocks:
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
             _no_cfg = (gr.update(),) * 10
             if not name:
-                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update()
+                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update()
             try:
                 proj = Project.load(BASE_DIR / name)
             except Exception as e:
-                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update()
+                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update(), gr.update()
 
             # settings.json 読み込み
             s = settings_manager.load(proj.project_dir)
@@ -930,16 +953,16 @@ def build_app() -> gr.Blocks:
             msg = f"プロジェクト '{name}' を読み込みました（{len(proj.scenes)}シーン）"
             music_path = proj.absolute_music_path()
             music_val = str(music_path) if music_path else None
-            return (_build_plan_df(proj.scenes), samples, msg, state, 0,
+            return (_build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0,
                     *_settings_to_cfg_values(s), music_val, name,
-                    proj.concept, proj.lyrics)
+                    proj.concept)
 
         load_btn.click(
             fn=on_load_project,
             inputs=[load_dropdown],
             outputs=[plan_scene_df, gen_scene_btns, load_status, project_state, current_scene_idx,
                      *_cfg_outputs, new_music, new_name,
-                     plan_concept_input, plan_lyrics_input],
+                     plan_concept_input],
         )
 
         def on_save_config(
@@ -1028,7 +1051,9 @@ def build_app() -> gr.Blocks:
             # ユーザーメッセージを即座に反映し、入力欄をクリア
             yield history, ""
             try:
-                messages = [{"role": m["role"], "content": m["content"]} for m in history[:-1]]
+                system_prompt = _build_plan_chat_system(proj)
+                chat_history = [{"role": m["role"], "content": m["content"]} for m in history[:-1]]
+                messages = [{"role": "system", "content": system_prompt}] + chat_history
                 for chunk in _llm_chat_stream(messages, proj):
                     history[-1]["content"] += chunk
                     yield history, ""
@@ -1046,6 +1071,7 @@ def build_app() -> gr.Blocks:
             inputs=[plan_chat_input, plan_chatbot, project_state],
             outputs=[plan_chatbot, plan_chat_input],
         )
+        plan_chat_clear.click(fn=lambda: ([], ""), outputs=[plan_chatbot, plan_chat_input])
 
 
         # ============================================================
@@ -1054,7 +1080,7 @@ def build_app() -> gr.Blocks:
 
         _BULK_BATCH_SIZE = 10
 
-        def on_bulk_generate(concept: str, lyrics: str, state: dict):
+        def on_bulk_generate(concept: str, state: dict):
             """10シーンずつバッチで一括提案し、Dataframeに表示する（保存はしない）ジェネレータ。"""
             proj = _project_from_state(state)
             if proj is None:
@@ -1081,7 +1107,6 @@ def build_app() -> gr.Blocks:
                 try:
                     results = _llm_bulk(
                         concept=concept,
-                        lyrics=lyrics,
                         scene_count=batch_count,
                         scene_duration=proj.scene_duration,
                         refs=refs,
@@ -1116,7 +1141,7 @@ def build_app() -> gr.Blocks:
 
         plan_bulk_btn.click(
             fn=on_bulk_generate,
-            inputs=[plan_concept_input, plan_lyrics_input, project_state],
+            inputs=[plan_concept_input, project_state],
             outputs=[plan_bulk_status, plan_scene_df],
         )
 
@@ -1125,14 +1150,13 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 計画タブ - 全シーン保存
         # ============================================================
 
-        def on_plan_save_all(df_data, concept, lyrics, state):
-            """コンセプト・歌詞・全シーン計画をまとめて保存する。"""
+        def on_plan_save_all(df_data, concept, state):
+            """コンセプト・全シーン計画をまとめて保存する。"""
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません"
-            # コンセプト・歌詞を保存
+            # コンセプトを保存
             proj.concept = concept or ""
-            proj.lyrics = lyrics or ""
             # df_data は pandas DataFrame または list[list]
             if hasattr(df_data, "values"):
                 rows = df_data.values.tolist()
@@ -1152,11 +1176,11 @@ def build_app() -> gr.Blocks:
                 proj.save_scene(scene)
                 updated += 1
             proj.save()
-            return f"コンセプト・歌詞・{updated}シーンを保存しました"
+            return f"コンセプト・{updated}シーンを保存しました"
 
         plan_save_all_btn.click(
             fn=on_plan_save_all,
-            inputs=[plan_scene_df, plan_concept_input, plan_lyrics_input, project_state],
+            inputs=[plan_scene_df, plan_concept_input, project_state],
             outputs=[plan_save_all_status],
         )
 
@@ -1183,6 +1207,11 @@ def build_app() -> gr.Blocks:
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx, [])
 
+        gen_tab.select(
+            fn=load_gen_scene,
+            inputs=[current_scene_idx, project_state],
+            outputs=gen_scene_outputs,
+        )
         gen_scene_btns.click(
             fn=lambda evt, state: load_gen_scene(evt, state),
             inputs=[gen_scene_btns, project_state],
@@ -1222,7 +1251,7 @@ def build_app() -> gr.Blocks:
             scene.enabled = enabled
             proj.save_scene(scene)
             samples = _build_scene_samples(proj.scenes)
-            return f"シーン {scene.scene_id} を保存しました", gr.update(samples=samples)
+            return f"シーン {scene.scene_id} を保存しました", gr.Dataset(samples=samples)
 
         gen_save_btn.click(
             fn=on_gen_save,
@@ -1489,7 +1518,7 @@ def build_app() -> gr.Blocks:
                 str(img) if img.exists() else None,
                 str(vid) if vid.exists() else None,
                 updated.status,
-                gr.update(samples=samples),
+                gr.Dataset(samples=samples),
             )
 
         _regen_inputs = [
@@ -1532,7 +1561,7 @@ def build_app() -> gr.Blocks:
                 vals = (None, "", "", None, None, "", "", "", "", -1, -1, "", "", "",
                         status_msg, True, 0, [])
             samples = _build_scene_samples(proj.scenes)
-            return vals + (gr.update(samples=samples), False)
+            return vals + (gr.Dataset(samples=samples), False)
 
         def on_scene_move_up(idx, state):
             proj = _project_from_state(state)

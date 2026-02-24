@@ -57,7 +57,6 @@ class LLMClient:
     def generate_all_scene_prompts(
         self,
         concept: str,
-        lyrics: str,
         scene_count: int,
         scene_duration: int,
         start_scene_id: int = 1,
@@ -68,14 +67,14 @@ class LLMClient:
 
         Returns:
             scene_idをキーとした辞書のリスト
-            [{"scene_id": 1, "section": "...", "lyrics": "...", "plot": "...",
+            [{"scene_id": 1, "section": "...", "plot": "...",
               "image_prompt": "...", "image_negative": "...",
               "video_prompt": "...", "video_negative": "..."}, ...]
         """
         system = (
             "あなたはミュージックビデオのディレクターです。"
-            "楽曲のコンセプトと歌詞をもとに、各シーンの映像プロンプトをJSON形式で生成してください。"
-            "section, lyrics, plot は日本語で記述してください。"
+            "楽曲のコンセプトをもとに、各シーンの映像プロンプトをJSON形式で生成してください。"
+            "section, plot は日本語で記述してください。"
             "image_promptとvideo_promptは英語で記述してください。"
         )
 
@@ -98,11 +97,10 @@ class LLMClient:
             "type": "text",
             "text": (
                 f"コンセプト: {concept}\n\n"
-                f"歌詞:\n{lyrics}\n\n"
                 f"シーン数: {scene_count}（1シーン{scene_duration}秒）\n"
                 f"scene_id は {start_scene_id} 〜 {end_scene_id} を使用すること。\n\n"
                 "以下のJSON配列形式で指定した scene_id 範囲のプロンプトを出力してください。"
-                "各要素は scene_id, section, lyrics, plot, "
+                "各要素は scene_id, section, plot, "
                 "image_prompt, image_negative, video_prompt, video_negative を含めること。\n"
                 "```json\n[ ... ]\n```"
             ),
