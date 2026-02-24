@@ -19,12 +19,14 @@ class VideoExporter:
         self,
         output_filename: str = "final.mp4",
         with_music: bool = True,
+        video_quality: str = "preview",
     ) -> Path:
         """全シーンの動画を結合して最終 MP4 を生成する。
 
         Args:
             output_filename: 出力ファイル名
             with_music: 音楽ファイルを合成するか
+            video_quality: "preview" または "final"（finalはプレビューにフォールバック）
 
         Returns:
             生成した最終動画のパス
@@ -37,7 +39,14 @@ class VideoExporter:
         for scene in proj.scenes:
             if not scene.enabled:
                 continue
-            vp = scene.video_path(proj.scene_dir(scene.scene_id))
+            scene_dir = proj.scene_dir(scene.scene_id)
+            if video_quality == "final":
+                vp = scene.video_final_path(scene_dir)
+                if not (vp.exists() and vp.stat().st_size > 0):
+                    # 最終版がなければプレビューにフォールバック
+                    vp = scene.video_preview_path(scene_dir)
+            else:
+                vp = scene.video_preview_path(scene_dir)
             if vp.exists() and vp.stat().st_size > 0:
                 video_files.append(vp)
 

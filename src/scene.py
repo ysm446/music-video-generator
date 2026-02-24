@@ -79,8 +79,15 @@ class Scene:
     def image_path(self, scene_dir: Path) -> Path:
         return scene_dir / "image.png"
 
+    def video_preview_path(self, scene_dir: Path) -> Path:
+        return scene_dir / "video_preview.mp4"
+
+    def video_final_path(self, scene_dir: Path) -> Path:
+        return scene_dir / "video_final.mp4"
+
     def video_path(self, scene_dir: Path) -> Path:
-        return scene_dir / "video.mp4"
+        """後方互換エイリアス。video_preview_path を返す。"""
+        return self.video_preview_path(scene_dir)
 
     # ---- ステータスアイコン ----
 

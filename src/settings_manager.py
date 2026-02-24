@@ -21,6 +21,8 @@ DEFAULT_SETTINGS: dict = {
     "image_resolution_h": 720,
     "video_resolution_w": 640,
     "video_resolution_h": 480,
+    "video_final_resolution_w": 1280,
+    "video_final_resolution_h": 720,
     "video_fps": 16,
     "video_frame_count": 81,
     "scene_duration": 5,

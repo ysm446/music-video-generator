@@ -32,6 +32,7 @@ class Project:
         llm_url: str = "http://localhost:11434/v1",
         image_workflow: str = "workflows/zimage_turbo.json",
         video_workflow: str = "workflows/wan22_i2v.json",
+        video_final_resolution: Optional[dict] = None,
         created_at: Optional[str] = None,
         updated_at: Optional[str] = None,
     ) -> None:
@@ -53,6 +54,7 @@ class Project:
         self.llm_url = llm_url
         self.image_workflow = image_workflow
         self.video_workflow = video_workflow
+        self.video_final_resolution = video_final_resolution or {"width": 1280, "height": 720}
         now = datetime.now().isoformat(timespec="seconds")
         self.created_at = created_at or now
         self.updated_at = updated_at or now
@@ -118,6 +120,7 @@ class Project:
             "llm_url": self.llm_url,
             "image_workflow": self.image_workflow,
             "video_workflow": self.video_workflow,
+            "video_final_resolution": self.video_final_resolution,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -227,6 +230,7 @@ class Project:
             llm_url=data.get("llm_url", "http://localhost:11434/v1"),
             image_workflow=data.get("image_workflow", "workflows/zimage_turbo.json"),
             video_workflow=data.get("video_workflow", "workflows/wan22_i2v.json"),
+            video_final_resolution=data.get("video_final_resolution", {"width": 1280, "height": 720}),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )
@@ -242,6 +246,14 @@ class Project:
             except Exception:
                 pass
         proj.scenes.sort(key=lambda s: s.order)
+
+        # 既存 video.mp4 → video_preview.mp4 マイグレーション
+        for scene in proj.scenes:
+            sd = proj.scene_dir(scene.scene_id)
+            old = sd / "video.mp4"
+            new = sd / "video_preview.mp4"
+            if old.exists() and not new.exists():
+                old.rename(new)
 
         return proj
 

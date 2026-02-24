@@ -177,6 +177,9 @@ def create_project_tab():
             "video_resolution",
             _cfg.get("defaults", {}).get("resolution", {"width": 640, "height": 480}),
         )
+        default_vid_final_res = _cfg.get("defaults", {}).get(
+            "video_final_resolution", {"width": 1280, "height": 720}
+        )
         default_vid_fps = _cfg.get("defaults", {}).get("video_fps", _cfg.get("defaults", {}).get("fps", 16))
         default_vid_frames = _cfg.get("defaults", {}).get("video_frame_count", 81)
 
@@ -199,8 +202,11 @@ def create_project_tab():
 
             with gr.Tab("動画設定"):
                 with gr.Row():
-                    cfg_vid_res_w = gr.Number(label="動画解像度 幅", value=default_vid_res.get("width", 640), precision=0)
-                    cfg_vid_res_h = gr.Number(label="動画解像度 高さ", value=default_vid_res.get("height", 480), precision=0)
+                    cfg_vid_res_w = gr.Number(label="プレビュー解像度 幅", value=default_vid_res.get("width", 640), precision=0)
+                    cfg_vid_res_h = gr.Number(label="プレビュー解像度 高さ", value=default_vid_res.get("height", 480), precision=0)
+                with gr.Row():
+                    cfg_vid_final_res_w = gr.Number(label="最終版解像度 幅", value=default_vid_final_res.get("width", 1280), precision=0)
+                    cfg_vid_final_res_h = gr.Number(label="最終版解像度 高さ", value=default_vid_final_res.get("height", 720), precision=0)
                 with gr.Row():
                     cfg_vid_fps = gr.Number(label="FPS", value=default_vid_fps, precision=0)
                     cfg_vid_frame_count = gr.Number(label="フレーム数", value=default_vid_frames, precision=0)
@@ -222,7 +228,9 @@ def create_project_tab():
     return (
         new_name, new_music, new_scene_dur, new_create_btn, new_status,
         load_dropdown, load_refresh_btn, load_btn, load_status,
-        cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
+        cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h,
+        cfg_vid_final_res_w, cfg_vid_final_res_h,
+        cfg_vid_fps, cfg_vid_frame_count,
         cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
         save_cfg_btn, save_cfg_status,
     )
@@ -264,13 +272,14 @@ def create_plan_tab():
                     row_count=(1, "dynamic"),
                 )
                 with gr.Row():
+                    plan_refresh_btn = gr.Button("🔄 更新", variant="secondary")
                     plan_save_all_btn = gr.Button("全て保存（コンセプト＋シーン計画）", variant="primary")
                 plan_save_all_status = gr.Textbox(label="保存ステータス", interactive=False)
 
     return (
         plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
         plan_concept_input, plan_bulk_btn, plan_bulk_status,
-        plan_scene_df, plan_save_all_btn, plan_save_all_status,
+        plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
     )
 
 
@@ -299,6 +308,7 @@ def create_generate_tab():
                 gr.Markdown("---")
                 gen_batch_btn = gr.Button("一括生成 開始", variant="primary")
                 gen_stop_btn = gr.Button("停止")
+                gen_batch_final_btn = gr.Button("最終版一括生成", variant="secondary")
                 gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
 
             # --- メインエリア ---
@@ -381,7 +391,8 @@ def create_generate_tab():
 
                 with gr.Row():
                     gen_regen_img_btn = gr.Button("画像だけ再生成")
-                    gen_regen_vid_btn = gr.Button("動画だけ再生成")
+                    gen_regen_vid_btn = gr.Button("プレビュー動画再生成")
+                    gen_regen_vid_final_btn = gr.Button("最終動画生成")
                     gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
                     gen_save_btn = gr.Button("保存", variant="primary")
 
@@ -390,7 +401,7 @@ def create_generate_tab():
     return (
         gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
-        gen_batch_btn, gen_stop_btn, gen_progress,
+        gen_batch_btn, gen_stop_btn, gen_batch_final_btn, gen_progress,
         gen_scene_id_disp, gen_time_disp, gen_plot,
         gen_image_preview, gen_video_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -402,7 +413,7 @@ def create_generate_tab():
         gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
         gen_enabled,
         gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
-        gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
+        gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
         gen_status_disp,
     )
 
@@ -423,6 +434,12 @@ def create_export_tab():
         )
         export_refresh_btn = gr.Button("サムネイル更新")
         with gr.Row():
+            export_quality = gr.Radio(
+                label="書き出し品質",
+                choices=["プレビュー (640×360)", "最終版 (1280×720)"],
+                value="プレビュー (640×360)",
+            )
+        with gr.Row():
             export_with_music = gr.Checkbox(label="音楽を合成する", value=True)
             export_btn = gr.Button("最終動画を書き出し（ffmpeg）", variant="primary")
         export_status = gr.Textbox(label="", interactive=False)
@@ -430,7 +447,7 @@ def create_export_tab():
 
     return (
         export_gallery, export_refresh_btn,
-        export_with_music, export_btn, export_status, export_video,
+        export_quality, export_with_music, export_btn, export_status, export_video,
     )
 
 
@@ -732,6 +749,8 @@ def _settings_to_cfg_values(s: dict) -> tuple:
             "video_resolution_h",
             s.get("resolution_h", settings_manager.DEFAULT_SETTINGS["video_resolution_h"]),
         ),
+        s.get("video_final_resolution_w", settings_manager.DEFAULT_SETTINGS["video_final_resolution_w"]),
+        s.get("video_final_resolution_h", settings_manager.DEFAULT_SETTINGS["video_final_resolution_h"]),
         s.get("video_fps", s.get("fps", settings_manager.DEFAULT_SETTINGS["video_fps"])),
         s.get("video_frame_count", settings_manager.DEFAULT_SETTINGS["video_frame_count"]),
         s.get("image_workflow", settings_manager.DEFAULT_SETTINGS["image_workflow"]),
@@ -754,7 +773,9 @@ def build_app() -> gr.Blocks:
         (
             new_name, new_music, new_scene_dur, new_create_btn, new_status,
             load_dropdown, load_refresh_btn, load_btn, load_status,
-            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
+            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h,
+            cfg_vid_final_res_w, cfg_vid_final_res_h,
+            cfg_vid_fps, cfg_vid_frame_count,
             cfg_img_wf, cfg_vid_wf, cfg_img_wf_refresh, cfg_vid_wf_refresh,
             save_cfg_btn, save_cfg_status,
         ) = create_project_tab()
@@ -762,13 +783,13 @@ def build_app() -> gr.Blocks:
         (
             plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
             plan_concept_input, plan_bulk_btn, plan_bulk_status,
-            plan_scene_df, plan_save_all_btn, plan_save_all_status,
+            plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
         ) = create_plan_tab()
 
         (
             gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
-            gen_batch_btn, gen_stop_btn, gen_progress,
+            gen_batch_btn, gen_stop_btn, gen_batch_final_btn, gen_progress,
             gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -780,13 +801,13 @@ def build_app() -> gr.Blocks:
             gen_vid_seed_rand_btn, gen_vid_seed_reload_btn,
             gen_enabled,
             gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
-            gen_regen_img_btn, gen_regen_vid_btn, gen_regen_both_btn, gen_save_btn,
+            gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_regen_both_btn, gen_save_btn,
             gen_status_disp,
         ) = create_generate_tab()
 
         (
             export_gallery, export_refresh_btn,
-            export_with_music, export_btn, export_status, export_video,
+            export_quality, export_with_music, export_btn, export_status, export_video,
         ) = create_export_tab()
 
         (
@@ -846,7 +867,9 @@ def build_app() -> gr.Blocks:
 
         # settings 読み書きで共通する cfg 出力コンポーネントリスト
         _cfg_outputs = [
-            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
+            cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h,
+            cfg_vid_final_res_w, cfg_vid_final_res_h,
+            cfg_vid_fps, cfg_vid_frame_count,
             cfg_img_wf, cfg_vid_wf, model_dropdown,
         ]
 
@@ -859,6 +882,8 @@ def build_app() -> gr.Blocks:
             img_res_h,
             vid_res_w,
             vid_res_h,
+            vid_final_res_w,
+            vid_final_res_h,
             vid_fps,
             vid_frame_count,
             img_wf,
@@ -866,7 +891,7 @@ def build_app() -> gr.Blocks:
             model,
         ):
             """新規プロジェクトを作成する。"""
-            _no_cfg = (gr.update(),) * 10
+            _no_cfg = (gr.update(),) * 12
             if not name:
                 return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg
             if not music_path:
@@ -885,6 +910,7 @@ def build_app() -> gr.Blocks:
                 scene_duration=int(scene_dur),
                 image_resolution={"width": int(img_res_w), "height": int(img_res_h)},
                 video_resolution={"width": int(vid_res_w), "height": int(vid_res_h)},
+                video_final_resolution={"width": int(vid_final_res_w), "height": int(vid_final_res_h)},
                 video_fps=int(vid_fps),
                 video_frame_count=int(vid_frame_count),
                 comfyui_url=comfyui_url,
@@ -905,6 +931,8 @@ def build_app() -> gr.Blocks:
                 "image_resolution_h": int(img_res_h),
                 "video_resolution_w": int(vid_res_w),
                 "video_resolution_h": int(vid_res_h),
+                "video_final_resolution_w": int(vid_final_res_w),
+                "video_final_resolution_h": int(vid_final_res_h),
                 "video_fps": int(vid_fps),
                 "video_frame_count": int(vid_frame_count),
                 "scene_duration": int(scene_dur),
@@ -922,7 +950,9 @@ def build_app() -> gr.Blocks:
             fn=on_create_project,
             inputs=[
                 new_name, new_music, new_scene_dur,
-                cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
+                cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h,
+                cfg_vid_final_res_w, cfg_vid_final_res_h,
+                cfg_vid_fps, cfg_vid_frame_count,
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
             outputs=[plan_scene_df, gen_scene_btns, new_status, project_state, current_scene_idx,
@@ -971,6 +1001,8 @@ def build_app() -> gr.Blocks:
             img_res_h,
             vid_res_w,
             vid_res_h,
+            vid_final_res_w,
+            vid_final_res_h,
             vid_fps,
             vid_frame_count,
             img_wf,
@@ -992,6 +1024,10 @@ def build_app() -> gr.Blocks:
                     "width": int(vid_res_w),
                     "height": int(vid_res_h),
                 }
+                cfg.setdefault("defaults", {})["video_final_resolution"] = {
+                    "width": int(vid_final_res_w),
+                    "height": int(vid_final_res_h),
+                }
                 cfg.setdefault("defaults", {})["video_fps"] = int(vid_fps)
                 cfg.setdefault("defaults", {})["video_frame_count"] = int(vid_frame_count)
                 with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -1000,12 +1036,12 @@ def build_app() -> gr.Blocks:
                 # プロジェクトの settings.json（プロジェクトが読み込まれている場合）
                 proj = _project_from_state(state)
                 if proj:
-                    # Generate tab reloads project.json, so persist these fields on Project too.
                     proj.comfyui_url = comfyui_url
                     proj.image_workflow = img_wf
                     proj.video_workflow = vid_wf
                     proj.image_resolution = {"width": int(img_res_w), "height": int(img_res_h)}
                     proj.video_resolution = {"width": int(vid_res_w), "height": int(vid_res_h)}
+                    proj.video_final_resolution = {"width": int(vid_final_res_w), "height": int(vid_final_res_h)}
                     proj.video_fps = int(vid_fps)
                     proj.video_frame_count = int(vid_frame_count)
                     proj.resolution = proj.image_resolution
@@ -1019,6 +1055,8 @@ def build_app() -> gr.Blocks:
                         "image_resolution_h": int(img_res_h),
                         "video_resolution_w": int(vid_res_w),
                         "video_resolution_h": int(vid_res_h),
+                        "video_final_resolution_w": int(vid_final_res_w),
+                        "video_final_resolution_h": int(vid_final_res_h),
                         "video_fps": int(vid_fps),
                         "video_frame_count": int(vid_frame_count),
                     })
@@ -1029,7 +1067,9 @@ def build_app() -> gr.Blocks:
 
         save_cfg_btn.click(
             fn=on_save_config,
-            inputs=[cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count, cfg_img_wf, cfg_vid_wf,
+            inputs=[cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h,
+                    cfg_vid_final_res_w, cfg_vid_final_res_h,
+                    cfg_vid_fps, cfg_vid_frame_count, cfg_img_wf, cfg_vid_wf,
                     project_state],
             outputs=[save_cfg_status],
         )
@@ -1182,6 +1222,19 @@ def build_app() -> gr.Blocks:
             fn=on_plan_save_all,
             inputs=[plan_scene_df, plan_concept_input, project_state],
             outputs=[plan_save_all_status],
+        )
+
+        def on_plan_refresh(state: dict):
+            """シーン計画一覧をディスクから最新状態に更新する。"""
+            proj = _project_from_state(state)
+            if proj is None:
+                return gr.update()
+            return _build_plan_df(proj.scenes)
+
+        plan_refresh_btn.click(
+            fn=on_plan_refresh,
+            inputs=[project_state],
+            outputs=[plan_scene_df],
         )
 
 
@@ -1483,7 +1536,7 @@ def build_app() -> gr.Blocks:
         def _get_comfyui(proj: Project) -> ComfyUIClient:
             return ComfyUIClient(base_url=proj.comfyui_url)
 
-        def on_regen(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, target="both"):
+        def on_regen(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, target="both", video_quality="preview"):
             proj = _project_from_state(state)
             if proj is None:
                 return None, None, "プロジェクトが読み込まれていません", gr.update()
@@ -1505,19 +1558,24 @@ def build_app() -> gr.Blocks:
 
             gen = BatchGenerator(proj, comfyui)
             try:
-                gen.regenerate_scene(scene.scene_id, target=target)
+                gen.regenerate_scene(scene.scene_id, target=target, video_quality=video_quality)
             except Exception as e:
                 return None, None, f"生成エラー: {e}", gr.update()
 
             updated = proj.scenes[idx]
             scene_dir = proj.scene_dir(updated.scene_id)
             img = updated.image_path(scene_dir)
-            vid = updated.video_path(scene_dir)
+            vid = updated.video_preview_path(scene_dir)
             samples = _build_scene_samples(proj.scenes)
+            status_msg = updated.status
+            if video_quality == "final":
+                final_vid = updated.video_final_path(scene_dir)
+                if final_vid.exists():
+                    status_msg += " (最終版あり)"
             return (
                 str(img) if img.exists() else None,
                 str(vid) if vid.exists() else None,
-                updated.status,
+                status_msg,
                 gr.Dataset(samples=samples),
             )
 
@@ -1533,7 +1591,12 @@ def build_app() -> gr.Blocks:
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
         )
         gen_regen_vid_btn.click(
-            fn=lambda *a: on_regen(*a, target="video"),
+            fn=lambda *a: on_regen(*a, target="video", video_quality="preview"),
+            inputs=_regen_inputs,
+            outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
+        )
+        gen_regen_vid_final_btn.click(
+            fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
             inputs=_regen_inputs,
             outputs=[gen_image_preview, gen_video_preview, gen_status_disp, gen_scene_btns],
         )
@@ -1667,8 +1730,33 @@ def build_app() -> gr.Blocks:
             with _batch_lock:
                 return "\n".join(_batch_log[-10:]) if _batch_log else "待機中..."
 
+        def on_batch_final_start(state):
+            global _batch_gen, _batch_log
+            proj = _project_from_state(state)
+            if proj is None:
+                return "プロジェクトが読み込まれていません"
+            comfyui = ComfyUIClient(base_url=proj.comfyui_url)
+            if not comfyui.is_available():
+                return f"ComfyUIに接続できません: {proj.comfyui_url}"
+
+            with _batch_lock:
+                _batch_log = []
+                _batch_gen = BatchGenerator(proj, comfyui)
+
+            def on_progress(sid, total, msg):
+                with _batch_lock:
+                    _batch_log.append(msg)
+
+            def on_error(sid, msg):
+                with _batch_lock:
+                    _batch_log.append(f"[ERROR] {msg}")
+
+            _batch_gen.run_async(on_progress=on_progress, on_error=on_error, video_quality="final")
+            return "最終版一括生成を開始しました"
+
         gen_batch_btn.click(fn=on_batch_start, inputs=[project_state], outputs=[gen_progress])
         gen_stop_btn.click(fn=on_batch_stop, outputs=[gen_progress])
+        gen_batch_final_btn.click(fn=on_batch_final_start, inputs=[project_state], outputs=[gen_progress])
 
 
         # ============================================================
@@ -1689,20 +1777,21 @@ def build_app() -> gr.Blocks:
             outputs=[export_gallery],
         )
 
-        def on_export(state, with_music):
+        def on_export(state, quality_label, with_music):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", None
             try:
+                video_quality = "final" if "最終版" in quality_label else "preview"
                 exporter = VideoExporter(proj)
-                out_path = exporter.export(with_music=with_music)
+                out_path = exporter.export(with_music=with_music, video_quality=video_quality)
                 return f"書き出し完了: {out_path}", str(out_path)
             except Exception as e:
                 return f"書き出しエラー: {e}", None
 
         export_btn.click(
             fn=on_export,
-            inputs=[project_state, export_with_music],
+            inputs=[project_state, export_quality, export_with_music],
             outputs=[export_status, export_video],
         )
 

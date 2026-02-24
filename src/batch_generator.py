@@ -39,13 +39,15 @@ class BatchGenerator:
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_error: Optional[Callable[[int, str], None]] = None,
         skip_video_done: bool = True,
+        video_quality: str = "preview",
     ) -> None:
         """全シーンの画像・動画を順番に生成する。
 
         Args:
             on_progress: (scene_id, total, message) を受け取るコールバック
             on_error: (scene_id, error_message) を受け取るコールバック
-            skip_video_done: statusがvideo_doneのシーンをスキップするか
+            skip_video_done: statusがvideo_doneのシーンをスキップするか（preview品質のみ有効）
+            video_quality: "preview" または "final"
         """
         self.reset_stop()
         self.is_running = True
@@ -62,39 +64,57 @@ class BatchGenerator:
                         on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（無効）")
                     continue
 
-                if skip_video_done and scene.is_video_done():
-                    if on_progress:
-                        on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（完了済み）")
-                    continue
-
-                # 画像生成
-                if not scene.is_image_done():
-                    try:
+                # スキップ判定
+                if video_quality == "final":
+                    # 最終版: video_final.mp4 が既に存在すればスキップ
+                    if skip_video_done:
+                        final_path = scene.video_final_path(proj.scene_dir(scene.scene_id))
+                        if final_path.exists() and final_path.stat().st_size > 0:
+                            if on_progress:
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（最終版完了済み）")
+                            continue
+                    # 最終版生成には画像が必要
+                    if not scene.is_image_done():
                         if on_progress:
-                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像生成中...")
-                        self._generate_image(scene)
-                        scene.status = "image_done"
-                        proj.save_scene(scene)
-                    except Exception as e:
-                        if on_error:
-                            on_error(scene.scene_id, f"画像生成エラー: {e}")
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（画像未生成）")
                         continue
+                else:
+                    # プレビュー: 既存の video_done スキップ
+                    if skip_video_done and scene.is_video_done():
+                        if on_progress:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はスキップ（完了済み）")
+                        continue
+
+                    # 画像生成
+                    if not scene.is_image_done():
+                        try:
+                            if on_progress:
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像生成中...")
+                            self._generate_image(scene)
+                            scene.status = "image_done"
+                            proj.save_scene(scene)
+                        except Exception as e:
+                            if on_error:
+                                on_error(scene.scene_id, f"画像生成エラー: {e}")
+                            continue
 
                 if self._stop_event.is_set():
                     break
 
                 # 動画生成
+                quality_label = "最終版動画" if video_quality == "final" else "動画"
                 try:
                     if on_progress:
-                        on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 動画生成中...")
-                    self._generate_video(scene)
-                    scene.status = "video_done"
-                    proj.save_scene(scene)
+                        on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: {quality_label}生成中...")
+                    self._generate_video(scene, quality=video_quality)
+                    if video_quality == "preview":
+                        scene.status = "video_done"
+                        proj.save_scene(scene)
                     if on_progress:
                         on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
                 except Exception as e:
                     if on_error:
-                        on_error(scene.scene_id, f"動画生成エラー: {e}")
+                        on_error(scene.scene_id, f"{quality_label}生成エラー: {e}")
         finally:
             self.is_running = False
 
@@ -102,11 +122,12 @@ class BatchGenerator:
         self,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_error: Optional[Callable[[int, str], None]] = None,
+        video_quality: str = "preview",
     ) -> threading.Thread:
         """バックグラウンドスレッドで run() を実行する。"""
         thread = threading.Thread(
             target=self.run,
-            kwargs={"on_progress": on_progress, "on_error": on_error},
+            kwargs={"on_progress": on_progress, "on_error": on_error, "video_quality": video_quality},
             daemon=True,
         )
         thread.start()
@@ -114,12 +135,13 @@ class BatchGenerator:
 
     # ---- 個別生成 ----
 
-    def regenerate_scene(self, scene_id: int, target: str = "both") -> None:
+    def regenerate_scene(self, scene_id: int, target: str = "both", video_quality: str = "preview") -> None:
         """指定シーンのみ再生成する。
 
         Args:
             scene_id: 対象シーンID
             target: "image" / "video" / "both"
+            video_quality: "preview" または "final"
         """
         proj = self.project
         scene = next(s for s in proj.scenes if s.scene_id == scene_id)
@@ -131,9 +153,10 @@ class BatchGenerator:
             proj.save_scene(scene)
 
         if target in ("video", "both"):
-            self._generate_video(scene)
-            scene.status = "video_done"
-            proj.save_scene(scene)
+            self._generate_video(scene, quality=video_quality)
+            if video_quality == "preview":
+                scene.status = "video_done"
+                proj.save_scene(scene)
 
     # ---- 内部生成処理 ----
 
@@ -152,11 +175,20 @@ class BatchGenerator:
             dest_path=dest,
         )
 
-    def _generate_video(self, scene: Scene) -> None:
+    def _generate_video(self, scene: Scene, quality: str = "preview") -> None:
         proj = self.project
         scene_dir = proj.scene_dir(scene.scene_id)
         image_path = scene.image_path(scene_dir)
-        dest = scene.video_path(scene_dir)
+
+        if quality == "final":
+            dest = scene.video_final_path(scene_dir)
+            width = proj.video_final_resolution["width"]
+            height = proj.video_final_resolution["height"]
+        else:
+            dest = scene.video_preview_path(scene_dir)
+            width = proj.video_resolution["width"]
+            height = proj.video_resolution["height"]
+
         # シーン個別ワークフローが指定されていればそちらを優先
         workflow = scene.video_workflow or proj.video_workflow
         self.comfyui.generate_video(
@@ -165,8 +197,8 @@ class BatchGenerator:
             positive_prompt=scene.video_prompt,
             negative_prompt=scene.video_negative,
             seed=scene.video_seed,
-            width=proj.video_resolution["width"],
-            height=proj.video_resolution["height"],
+            width=width,
+            height=height,
             fps=proj.video_fps,
             frame_count=proj.video_frame_count,
             dest_path=dest,
