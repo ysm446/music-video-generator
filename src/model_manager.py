@@ -206,6 +206,7 @@ def chat(
 _BULK_SYSTEM = (
     "あなたはミュージックビデオのディレクターです。"
     "楽曲のコンセプトと歌詞をもとに、各シーンの映像プロンプトを JSON 形式で生成してください。"
+    "section, lyrics, plot は日本語で記述してください。"
     "image_prompt と video_prompt は英語で記述してください。"
 )
 
@@ -216,8 +217,9 @@ _BULK_USER_TEMPLATE = """\
 {lyrics}
 
 シーン数: {scene_count}（1シーン {scene_duration} 秒）
+scene_id は {start_id} 〜 {end_id} を使用すること。
 
-以下の JSON 配列形式で全シーンのプロンプトを出力してください。
+以下の JSON 配列形式で指定した scene_id 範囲のプロンプトを出力してください。
 各要素は scene_id, section, lyrics, plot,
 image_prompt, image_negative, video_prompt, video_negative を含めること。
 ```json
@@ -230,6 +232,7 @@ def generate_all_scene_prompts(
     lyrics: str,
     scene_count: int,
     scene_duration: int,
+    start_scene_id: int = 1,
     reference_images: Optional[list[Path]] = None,
 ) -> list[dict]:
     """全シーンのプロンプトを一括生成する。
@@ -259,6 +262,8 @@ def generate_all_scene_prompts(
             lyrics=lyrics,
             scene_count=scene_count,
             scene_duration=scene_duration,
+            start_id=start_scene_id,
+            end_id=start_scene_id + scene_count - 1,
         ),
     })
 
@@ -267,7 +272,7 @@ def generate_all_scene_prompts(
         {"role": "user", "content": user_content},
     ]
     inputs = _build_inputs(messages)
-    response = "".join(_stream_generate(inputs, max_new_tokens=8192))
+    response = "".join(_stream_generate(inputs, max_new_tokens=3000))
     return _extract_json_list(response)
 
 

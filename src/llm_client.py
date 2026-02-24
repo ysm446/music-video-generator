@@ -60,6 +60,7 @@ class LLMClient:
         lyrics: str,
         scene_count: int,
         scene_duration: int,
+        start_scene_id: int = 1,
         reference_images: Optional[list[Path]] = None,
         temperature: float = 0.7,
     ) -> list[dict]:
@@ -74,6 +75,7 @@ class LLMClient:
         system = (
             "あなたはミュージックビデオのディレクターです。"
             "楽曲のコンセプトと歌詞をもとに、各シーンの映像プロンプトをJSON形式で生成してください。"
+            "section, lyrics, plot は日本語で記述してください。"
             "image_promptとvideo_promptは英語で記述してください。"
         )
 
@@ -91,13 +93,15 @@ class LLMClient:
                 except Exception:
                     pass
 
+        end_scene_id = start_scene_id + scene_count - 1
         content.append({
             "type": "text",
             "text": (
                 f"コンセプト: {concept}\n\n"
                 f"歌詞:\n{lyrics}\n\n"
-                f"シーン数: {scene_count}（1シーン{scene_duration}秒）\n\n"
-                "以下のJSON配列形式で全シーンのプロンプトを出力してください。"
+                f"シーン数: {scene_count}（1シーン{scene_duration}秒）\n"
+                f"scene_id は {start_scene_id} 〜 {end_scene_id} を使用すること。\n\n"
+                "以下のJSON配列形式で指定した scene_id 範囲のプロンプトを出力してください。"
                 "各要素は scene_id, section, lyrics, plot, "
                 "image_prompt, image_negative, video_prompt, video_negative を含めること。\n"
                 "```json\n[ ... ]\n```"
@@ -108,7 +112,7 @@ class LLMClient:
             {"role": "system", "content": system},
             {"role": "user", "content": content},
         ]
-        response = self.chat(messages, temperature=temperature, max_tokens=8192)
+        response = self.chat(messages, temperature=temperature, max_tokens=3000)
         return _extract_json_list(response)
 
     # ---- 個別シーンのプロンプト改善 ----

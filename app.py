@@ -237,87 +237,40 @@ def create_plan_tab():
 
     with gr.Tab("計画"):
         with gr.Row():
-            # --- サイドバー（シーン一覧） ---
-            with gr.Column(scale=1, min_width=140):
-                gr.Markdown("### シーン一覧")
-                plan_scene_btns = gr.Dataset(
-                    label="",
-                    components=[gr.Textbox(visible=False)],
-                    samples=[],
-                    type="index",
-                    headers=["シーン"],
-                )
-                plan_prev_btn = gr.Button("◀ Prev")
-                plan_next_btn = gr.Button("Next ▶")
-
-            # --- メインエリア ---
-            with gr.Column(scale=4):
+            # --- 左カラム: LLMチャット ---
+            with gr.Column(scale=2):
                 gr.Markdown("### LLMチャット（コンセプト相談）")
-                plan_chatbot = gr.Chatbot(height=260)
+                plan_chatbot = gr.Chatbot(height=300)
                 with gr.Row():
                     plan_chat_input = gr.Textbox(
                         label="", placeholder="コンセプトや歌詞について質問...", scale=4
                     )
                     plan_chat_send = gr.Button("送信", scale=1)
                 plan_concept_input = gr.Textbox(label="全体コンセプト（保存用）", lines=2)
-                plan_lyrics_input = gr.Textbox(label="歌詞（任意）", lines=4)
+                plan_lyrics_input = gr.Textbox(label="歌詞（任意）", lines=3)
                 plan_bulk_btn = gr.Button("全シーンを一括提案（Qwen）", variant="secondary")
                 plan_bulk_status = gr.Textbox(label="", interactive=False)
 
-                gr.Markdown("---")
-                gr.Markdown("### シーン編集")
+            # --- 右カラム: シーン計画一覧 ---
+            with gr.Column(scale=3):
+                gr.Markdown("### シーン計画一覧")
+                plan_scene_df = gr.Dataframe(
+                    headers=["ID", "時間", "セクション", "プロット"],
+                    datatype=["number", "str", "str", "str"],
+                    column_count=(4, "fixed"),
+                    interactive=True,
+                    wrap=True,
+                    value=[],
+                    row_count=(1, "dynamic"),
+                )
                 with gr.Row():
-                    with gr.Column(scale=1):
-                        plan_scene_id_disp = gr.Number(label="シーンID", value=1, interactive=False, precision=0)
-                        plan_time_disp = gr.Textbox(label="時間", interactive=False)
-                    with gr.Column(scale=3):
-                        plan_plot = gr.Textbox(
-                            label="シーン説明（何を描くかの計画）",
-                            lines=3,
-                            placeholder="このシーンで描く内容を記入",
-                        )
-                plan_section = gr.Textbox(label="セクション")
-                plan_lyrics = gr.Textbox(label="歌詞")
-
-                with gr.Row():
-                    plan_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=2)
-                    plan_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
-
-                with gr.Row():
-                    plan_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=2)
-                    plan_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
-
-                with gr.Row():
-                    plan_img_wf = gr.Dropdown(
-                        label="画像ワークフロー（空=プロジェクトデフォルト）",
-                        choices=[""] + _list_image_workflows(),
-                        value="",
-                        allow_custom_value=True,
-                    )
-                    plan_vid_wf = gr.Dropdown(
-                        label="動画ワークフロー（空=プロジェクトデフォルト）",
-                        choices=[""] + _list_video_workflows(),
-                        value="",
-                        allow_custom_value=True,
-                    )
-
-                plan_notes = gr.Textbox(label="メモ", lines=1)
-                plan_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
-
-                with gr.Row():
-                    plan_save_btn = gr.Button("保存", variant="primary")
-                    plan_consult_btn = gr.Button("このシーンをQwenに相談")
-
-                plan_save_status = gr.Textbox(label="", interactive=False)
+                    plan_save_all_btn = gr.Button("全て保存（コンセプト＋シーン計画）", variant="primary")
+                plan_save_all_status = gr.Textbox(label="", interactive=False)
 
     return (
-        plan_scene_btns, plan_prev_btn, plan_next_btn,
         plan_chatbot, plan_chat_input, plan_chat_send,
         plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
-        plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
-        plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-        plan_img_wf, plan_vid_wf,
-        plan_notes, plan_enabled, plan_save_btn, plan_consult_btn, plan_save_status,
+        plan_scene_df, plan_save_all_btn, plan_save_all_status,
     )
 
 
@@ -484,24 +437,6 @@ def create_export_tab():
 # シーン表示ヘルパー
 # ============================================================
 
-def _scene_to_plan_values(scene: Scene) -> tuple:
-    """SceneオブジェクトをPlanタブの各コンポーネント値に変換する。"""
-    return (
-        scene.scene_id,
-        f"{scene.start_time:.1f}s - {scene.end_time:.1f}s",
-        scene.section,
-        scene.lyrics,
-        scene.plot,
-        scene.image_prompt,
-        scene.image_negative,
-        scene.video_prompt,
-        scene.video_negative,
-        scene.image_workflow or "",
-        scene.video_workflow or "",
-        scene.notes,
-        scene.enabled,
-    )
-
 def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
     """SceneオブジェクトをGenerateタブの各コンポーネント値に変換する。"""
     scene_dir = proj.scene_dir(scene.scene_id)
@@ -529,6 +464,14 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
 def _build_scene_samples(scenes: list[Scene]) -> list[list[str]]:
     """Dataset用のサンプルリストを生成する。"""
     return [[_scene_status_label(s)] for s in scenes]
+
+
+def _build_plan_df(scenes: list[Scene]) -> list[list]:
+    """Dataframe用のシーン計画リストを生成する。"""
+    return [
+        [s.scene_id, f"{s.start_time:.1f}s-{s.end_time:.1f}s", s.section or "", s.plot or ""]
+        for s in scenes
+    ]
 
 
 # ============================================================
@@ -609,7 +552,8 @@ def _llm_chat_stream(messages: list[dict], proj: Optional[Project]):
     yield from client.chat_stream(messages)
 
 
-def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj) -> list[dict]:
+def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj,
+              start_scene_id: int = 1) -> list[dict]:
     """全シーン一括提案をローカル or API で実行する。"""
     if model_manager.is_loaded():
         return model_manager.generate_all_scene_prompts(
@@ -617,6 +561,7 @@ def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj) -> list[
             lyrics=lyrics,
             scene_count=scene_count,
             scene_duration=scene_duration,
+            start_scene_id=start_scene_id,
             reference_images=refs if refs else None,
         )
     llm_url = proj.llm_url if proj else _cfg.get("llm", {}).get("url", "http://localhost:11434/v1")
@@ -627,6 +572,7 @@ def _llm_bulk(concept, lyrics, scene_count, scene_duration, refs, proj) -> list[
         lyrics=lyrics,
         scene_count=scene_count,
         scene_duration=scene_duration,
+        start_scene_id=start_scene_id,
         reference_images=refs if refs else None,
     )
 
@@ -792,13 +738,9 @@ def build_app() -> gr.Blocks:
         ) = create_project_tab()
 
         (
-            plan_scene_btns, plan_prev_btn, plan_next_btn,
             plan_chatbot, plan_chat_input, plan_chat_send,
             plan_concept_input, plan_lyrics_input, plan_bulk_btn, plan_bulk_status,
-            plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
-            plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-            plan_img_wf, plan_vid_wf,
-            plan_notes, plan_enabled, plan_save_btn, plan_consult_btn, plan_save_status,
+            plan_scene_df, plan_save_all_btn, plan_save_all_status,
         ) = create_plan_tab()
 
         (
@@ -951,7 +893,7 @@ def build_app() -> gr.Blocks:
             samples = _build_scene_samples(proj.scenes)
             msg = f"プロジェクト '{name}' を作成しました（{len(proj.scenes)}シーン, {duration:.1f}秒）"
             s = settings_manager.load(proj.project_dir)
-            return samples, samples, msg, state, 0, *_settings_to_cfg_values(s)
+            return _build_plan_df(proj.scenes), samples, msg, state, 0, *_settings_to_cfg_values(s)
 
         new_create_btn.click(
             fn=on_create_project,
@@ -960,7 +902,7 @@ def build_app() -> gr.Blocks:
                 cfg_comfyui_url, cfg_img_res_w, cfg_img_res_h, cfg_vid_res_w, cfg_vid_res_h, cfg_vid_fps, cfg_vid_frame_count,
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
-            outputs=[plan_scene_btns, gen_scene_btns, new_status, project_state, current_scene_idx,
+            outputs=[plan_scene_df, gen_scene_btns, new_status, project_state, current_scene_idx,
                      *_cfg_outputs],
         )
 
@@ -973,11 +915,11 @@ def build_app() -> gr.Blocks:
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
             _no_cfg = (gr.update(),) * 10
             if not name:
-                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update()
+                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update()
             try:
                 proj = Project.load(BASE_DIR / name)
             except Exception as e:
-                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update()
+                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update()
 
             # settings.json 読み込み
             s = settings_manager.load(proj.project_dir)
@@ -988,13 +930,16 @@ def build_app() -> gr.Blocks:
             msg = f"プロジェクト '{name}' を読み込みました（{len(proj.scenes)}シーン）"
             music_path = proj.absolute_music_path()
             music_val = str(music_path) if music_path else None
-            return samples, samples, msg, state, 0, *_settings_to_cfg_values(s), music_val, name
+            return (_build_plan_df(proj.scenes), samples, msg, state, 0,
+                    *_settings_to_cfg_values(s), music_val, name,
+                    proj.concept, proj.lyrics)
 
         load_btn.click(
             fn=on_load_project,
             inputs=[load_dropdown],
-            outputs=[plan_scene_btns, gen_scene_btns, load_status, project_state, current_scene_idx,
-                     *_cfg_outputs, new_music, new_name],
+            outputs=[plan_scene_df, gen_scene_btns, load_status, project_state, current_scene_idx,
+                     *_cfg_outputs, new_music, new_name,
+                     plan_concept_input, plan_lyrics_input],
         )
 
         def on_save_config(
@@ -1068,83 +1013,6 @@ def build_app() -> gr.Blocks:
 
 
         # ============================================================
-        # イベントハンドラ: 計画タブ - シーン切替
-        # ============================================================
-
-        plan_scene_outputs = [
-            plan_scene_id_disp, plan_time_disp, plan_section, plan_lyrics,
-            plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-            plan_img_wf, plan_vid_wf,
-            plan_notes, plan_enabled, current_scene_idx,
-        ]
-
-        def load_plan_scene(idx: int, state: dict) -> tuple:
-            proj = _project_from_state(state)
-            if proj is None or not proj.scenes:
-                return (None, "", "", "", "", "", "", "", "", "", "", "", True, idx)
-            idx = max(0, min(idx, len(proj.scenes) - 1))
-            scene = proj.scenes[idx]
-            return _scene_to_plan_values(scene) + (idx,)
-
-        plan_scene_btns.click(
-            fn=lambda evt, state: load_plan_scene(evt, state),
-            inputs=[plan_scene_btns, project_state],
-            outputs=plan_scene_outputs,
-        )
-
-        plan_prev_btn.click(
-            fn=lambda idx, state: load_plan_scene(idx - 1, state),
-            inputs=[current_scene_idx, project_state],
-            outputs=plan_scene_outputs,
-        )
-
-        plan_next_btn.click(
-            fn=lambda idx, state: load_plan_scene(idx + 1, state),
-            inputs=[current_scene_idx, project_state],
-            outputs=plan_scene_outputs,
-        )
-
-
-        # ============================================================
-        # イベントハンドラ: 計画タブ - 保存
-        # ============================================================
-
-        def on_plan_save(idx, state, scene_id, section, lyrics, plot,
-                         img_p, img_n, vid_p, vid_n, img_wf, vid_wf, notes, enabled):
-            proj = _project_from_state(state)
-            if proj is None:
-                return "プロジェクトが読み込まれていません", gr.update()
-            scene = proj.scenes[idx]
-            scene.section = section
-            scene.lyrics = lyrics
-            scene.plot = plot
-            scene.image_prompt = img_p
-            scene.image_negative = img_n
-            scene.video_prompt = vid_p
-            scene.video_negative = vid_n
-            scene.image_workflow = img_wf or None
-            scene.video_workflow = vid_wf or None
-            scene.notes = notes
-            scene.enabled = enabled
-            if scene.status == "empty" and plot:
-                scene.status = "plot_done"
-            proj.save_scene(scene)
-            samples = _build_scene_samples(proj.scenes)
-            return f"シーン {scene.scene_id} を保存しました", gr.update(samples=samples)
-
-        plan_save_btn.click(
-            fn=on_plan_save,
-            inputs=[
-                current_scene_idx, project_state,
-                plan_scene_id_disp, plan_section, plan_lyrics, plan_plot,
-                plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-                plan_img_wf, plan_vid_wf, plan_notes, plan_enabled,
-            ],
-            outputs=[plan_save_status, plan_scene_btns],
-        )
-
-
-        # ============================================================
         # イベントハンドラ: 計画タブ - LLMチャット
         # ============================================================
 
@@ -1184,101 +1052,112 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 計画タブ - 全シーン一括提案
         # ============================================================
 
+        _BULK_BATCH_SIZE = 10
+
         def on_bulk_generate(concept: str, lyrics: str, state: dict):
+            """10シーンずつバッチで一括提案し、Dataframeに表示する（保存はしない）ジェネレータ。"""
             proj = _project_from_state(state)
             if proj is None:
-                return "プロジェクトが読み込まれていません", gr.update()
+                yield "プロジェクトが読み込まれていません", gr.update()
+                return
             if not concept:
-                return "コンセプトを入力してください", gr.update()
+                yield "コンセプトを入力してください", gr.update()
+                return
 
-            try:
-                refs = list(proj.references_dir.glob("*.png"))[:4]
-                results = _llm_bulk(
-                    concept=concept,
-                    lyrics=lyrics,
-                    scene_count=len(proj.scenes),
-                    scene_duration=proj.scene_duration,
-                    refs=refs,
-                    proj=proj,
-                )
-            except Exception as e:
-                return f"LLMエラー: {e}", gr.update()
+            total = len(proj.scenes)
+            refs = list(proj.references_dir.glob("*.png"))[:4]
 
-            # 結果をシーンに反映して保存
-            updated = 0
-            for item in results:
-                sid = item.get("scene_id")
-                if sid and 1 <= sid <= len(proj.scenes):
-                    scene = proj.scenes[sid - 1]
-                    scene.section = item.get("section", scene.section)
-                    scene.lyrics = item.get("lyrics", scene.lyrics)
-                    scene.plot = item.get("plot", scene.plot)
-                    scene.image_prompt = item.get("image_prompt", scene.image_prompt)
-                    scene.image_negative = item.get("image_negative", scene.image_negative)
-                    scene.video_prompt = item.get("video_prompt", scene.video_prompt)
-                    scene.video_negative = item.get("video_negative", scene.video_negative)
-                    if scene.status == "empty" and scene.plot:
-                        scene.status = "plot_done"
-                    proj.save_scene(scene)
-                    updated += 1
+            # 提案結果を一時的に保持（scene_id → (section, plot)）
+            proposed: dict[int, tuple[str, str]] = {}
 
-            # コンセプト保存
-            proj.concept = concept
-            proj.save()
+            for batch_start in range(0, total, _BULK_BATCH_SIZE):
+                batch_end = min(batch_start + _BULK_BATCH_SIZE, total)
+                batch_count = batch_end - batch_start
+                start_id = batch_start + 1
+                end_id = batch_end
 
-            samples = _build_scene_samples(proj.scenes)
-            return f"{updated}シーンのプロンプトを更新しました", gr.update(samples=samples)
+                yield f"処理中: シーン {start_id}〜{end_id}/{total}...", gr.update()
+
+                try:
+                    results = _llm_bulk(
+                        concept=concept,
+                        lyrics=lyrics,
+                        scene_count=batch_count,
+                        scene_duration=proj.scene_duration,
+                        refs=refs,
+                        proj=proj,
+                        start_scene_id=start_id,
+                    )
+                except Exception as e:
+                    yield f"LLMエラー (シーン {start_id}〜{end_id}): {e}", gr.update()
+                    return
+
+                for item in results:
+                    sid = item.get("scene_id")
+                    if sid and 1 <= sid <= total:
+                        proposed[sid] = (
+                            item.get("section", ""),
+                            item.get("plot", ""),
+                        )
+
+                # バッチ完了後にDataframeを逐次更新（既存データは保持、提案のみ上書き表示）
+                df_rows = [
+                    [s.scene_id,
+                     f"{s.start_time:.1f}s-{s.end_time:.1f}s",
+                     proposed[s.scene_id][0] if s.scene_id in proposed else (s.section or ""),
+                     proposed[s.scene_id][1] if s.scene_id in proposed else (s.plot or "")]
+                    for s in proj.scenes
+                ]
+                yield (f"シーン {start_id}〜{end_id} 提案完了（{len(proposed)}/{total}件）",
+                       gr.update(value=df_rows))
+
+            yield (f"提案完了: {len(proposed)}/{total}シーン。内容を確認・編集後「全て保存」を押してください。",
+                   gr.update())
 
         plan_bulk_btn.click(
             fn=on_bulk_generate,
             inputs=[plan_concept_input, plan_lyrics_input, project_state],
-            outputs=[plan_bulk_status, plan_scene_btns],
+            outputs=[plan_bulk_status, plan_scene_df],
         )
 
 
         # ============================================================
-        # イベントハンドラ: 計画タブ - 個別シーン相談
+        # イベントハンドラ: 計画タブ - 全シーン保存
         # ============================================================
 
-        def on_consult_scene(idx, state, concept, plot, img_p, img_n, vid_p, vid_n, history):
+        def on_plan_save_all(df_data, concept, lyrics, state):
+            """コンセプト・歌詞・全シーン計画をまとめて保存する。"""
             proj = _project_from_state(state)
             if proj is None:
-                return history, "プロジェクトが読み込まれていません"
-            scene = proj.scenes[idx]
-            scene_data = {
-                "scene_id": scene.scene_id,
-                "section": scene.section,
-                "lyrics": scene.lyrics,
-                "plot": plot,
-                "image_prompt": img_p,
-                "image_negative": img_n,
-                "video_prompt": vid_p,
-                "video_negative": vid_n,
-            }
-            try:
-                refs = list(proj.references_dir.glob("*.png"))[:2]
-                improved = _llm_improve(
-                    scene_data=scene_data,
-                    concept=concept or proj.concept,
-                    refs=refs,
-                    proj=proj,
-                )
-            except Exception as e:
-                return history, f"LLMエラー: {e}"
+                return "プロジェクトが読み込まれていません"
+            # コンセプト・歌詞を保存
+            proj.concept = concept or ""
+            proj.lyrics = lyrics or ""
+            # df_data は pandas DataFrame または list[list]
+            if hasattr(df_data, "values"):
+                rows = df_data.values.tolist()
+            else:
+                rows = df_data if df_data else []
+            updated = 0
+            for i, row in enumerate(rows):
+                if i >= len(proj.scenes):
+                    break
+                scene = proj.scenes[i]
+                section = str(row[2]) if row[2] is not None else ""
+                plot = str(row[3]) if row[3] is not None else ""
+                scene.section = section
+                scene.plot = plot
+                if scene.status == "empty" and plot:
+                    scene.status = "plot_done"
+                proj.save_scene(scene)
+                updated += 1
+            proj.save()
+            return f"コンセプト・歌詞・{updated}シーンを保存しました"
 
-            msg = f"シーン {scene.scene_id} の改善案:\n```json\n{improved}\n```"
-            history = history or []
-            history.append({"role": "assistant", "content": msg})
-            return history, "改善案をチャットに表示しました"
-
-        plan_consult_btn.click(
-            fn=on_consult_scene,
-            inputs=[
-                current_scene_idx, project_state, plan_concept_input,
-                plan_plot, plan_img_prompt, plan_img_neg, plan_vid_prompt, plan_vid_neg,
-                plan_chatbot,
-            ],
-            outputs=[plan_chatbot, plan_save_status],
+        plan_save_all_btn.click(
+            fn=on_plan_save_all,
+            inputs=[plan_scene_df, plan_concept_input, plan_lyrics_input, project_state],
+            outputs=[plan_save_all_status],
         )
 
 
