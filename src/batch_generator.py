@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+import shutil
 import threading
 from typing import Callable, Optional
 
@@ -203,9 +205,19 @@ class BatchGenerator:
 
     # ---- 内部生成処理 ----
 
+    @staticmethod
+    def _next_image_version_name() -> str:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        return f"image_{stamp}.png"
+
     def _generate_image(self, scene: Scene) -> None:
         proj = self.project
-        dest = scene.image_path(proj.scene_dir(scene.scene_id))
+        scene_dir = proj.scene_dir(scene.scene_id)
+        versions_dir = scene.image_versions_dir(scene_dir)
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        version_name = self._next_image_version_name()
+        version_path = scene.image_version_path(scene_dir, version_name)
+        active_path = scene.image_path(scene_dir)
         # シーン個別ワークフローが指定されていればそちらを優先
         workflow = scene.image_workflow or proj.image_workflow
         self.comfyui.generate_image(
@@ -215,8 +227,10 @@ class BatchGenerator:
             seed=scene.image_seed,
             width=proj.image_resolution["width"],
             height=proj.image_resolution["height"],
-            dest_path=dest,
+            dest_path=version_path,
         )
+        shutil.copy2(version_path, active_path)
+        scene.active_image_version = version_name
 
     def _generate_video(self, scene: Scene, quality: str = "preview") -> None:
         proj = self.project

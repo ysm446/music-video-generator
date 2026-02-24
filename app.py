@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -142,6 +144,82 @@ def _format_elapsed(seconds: float) -> str:
 
 def _scene_status_label(scene: Scene) -> str:
     return f"{scene.status_icon()} {scene.scene_id:03d}"
+
+
+def _list_scene_image_versions(scene: Scene, scene_dir: Path) -> list[Path]:
+    versions_dir = scene.image_versions_dir(scene_dir)
+    if not versions_dir.exists():
+        return []
+    return sorted(
+        [p for p in versions_dir.glob("*.png") if p.is_file()],
+        key=lambda p: p.name,
+        reverse=True,
+    )
+
+
+def _files_identical(path_a: Path, path_b: Path) -> bool:
+    if not (path_a.exists() and path_b.exists()):
+        return False
+    if path_a.stat().st_size != path_b.stat().st_size:
+        return False
+    return path_a.read_bytes() == path_b.read_bytes()
+
+
+def _ensure_scene_image_history(scene: Scene, scene_dir: Path) -> bool:
+    active_path = scene.image_path(scene_dir)
+    if not active_path.exists():
+        if scene.active_image_version:
+            scene.active_image_version = ""
+            return True
+        return False
+
+    versions_dir = scene.image_versions_dir(scene_dir)
+    versions_dir.mkdir(parents=True, exist_ok=True)
+    changed = False
+
+    if scene.active_image_version:
+        active_version_path = scene.image_version_path(scene_dir, scene.active_image_version)
+        if active_version_path.exists():
+            if not _files_identical(active_path, active_version_path):
+                shutil.copy2(active_path, active_version_path)
+            return changed
+
+    for version_path in _list_scene_image_versions(scene, scene_dir):
+        if _files_identical(active_path, version_path):
+            if scene.active_image_version != version_path.name:
+                scene.active_image_version = version_path.name
+                changed = True
+            return changed
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    imported_name = f"image_{stamp}_imported.png"
+    imported_path = scene.image_version_path(scene_dir, imported_name)
+    while imported_path.exists():
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        imported_name = f"image_{stamp}_imported.png"
+        imported_path = scene.image_version_path(scene_dir, imported_name)
+    shutil.copy2(active_path, imported_path)
+    scene.active_image_version = imported_name
+    return True
+
+
+def _selected_version_path(scene: Scene, scene_dir: Path, filename: str | None) -> Optional[Path]:
+    if not filename:
+        return None
+    path = scene.image_version_path(scene_dir, Path(filename).name)
+    return path if path.exists() else None
+
+
+def _image_history_ui_updates(scene: Scene, scene_dir: Path, selected_name: str | None = None) -> tuple:
+    versions = _list_scene_image_versions(scene, scene_dir)
+    choices = [p.name for p in versions]
+    if not choices:
+        return gr.update(choices=[], value=None), None
+
+    if selected_name not in choices:
+        selected_name = scene.active_image_version if scene.active_image_version in choices else choices[0]
+    selected_path = _selected_version_path(scene, scene_dir, selected_name)
+    return gr.update(choices=choices, value=selected_name), (str(selected_path) if selected_path else None)
 
 
 # ============================================================
@@ -366,6 +444,19 @@ def create_generate_tab():
                                         allow_custom_value=True,
                                         scale=4,
                                     )
+                                with gr.Row():
+                                    gen_img_history = gr.Dropdown(
+                                        label="保存済み画像",
+                                        choices=[],
+                                        value=None,
+                                        allow_custom_value=False,
+                                        scale=4,
+                                    )
+                                    gen_img_history_refresh_btn = gr.Button("更新", scale=1, size="sm")
+                                with gr.Row():
+                                    gen_img_use_saved_btn = gr.Button("選択画像を本番に設定", variant="secondary")
+                                    gen_img_delete_saved_btn = gr.Button("選択画像を削除", variant="stop")
+                                gen_img_history_preview = gr.Image(label="選択中の保存画像", type="filepath")
                             with gr.Column(scale=2):
                                 gr.Markdown("**LLM相談**")
                                 gen_img_chatbot = gr.Chatbot(label="", height=240, show_label=False)
@@ -400,7 +491,7 @@ def create_generate_tab():
                                     placeholder="動かしたい内容・雰囲気・カメラワーク等...",
                                     lines=4,
                                 )
-                                gen_vid_consult_btn = gr.Button("生成", variant="secondary")
+                                gen_vid_consult_btn = gr.Button("プロンプト生成", variant="secondary")
 
                 gen_enabled = gr.Checkbox(label="このシーンを有効にする", value=True)
 
@@ -411,7 +502,7 @@ def create_generate_tab():
                     gen_delete_btn = gr.Button("🗑 削除", size="sm", variant="stop")
 
                 with gr.Row():
-                    gen_regen_img_btn = gr.Button("画像だけ再生成")
+                    gen_regen_img_btn = gr.Button("画像の生成")
                     gen_regen_vid_btn = gr.Button("プレビュー動画再生成")
                     gen_regen_vid_final_btn = gr.Button("最終動画生成")
                     gen_regen_both_btn = gr.Button("両方再生成", variant="secondary")
@@ -432,6 +523,7 @@ def create_generate_tab():
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
         gen_img_seed, gen_vid_seed,
         gen_img_wf, gen_vid_wf,
+        gen_img_history, gen_img_history_preview, gen_img_use_saved_btn, gen_img_delete_saved_btn, gen_img_history_refresh_btn,
         gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
         gen_img_seed_rand_btn, gen_img_seed_reload_btn,
         gen_vid_extra_input, gen_vid_consult_btn,
@@ -484,9 +576,12 @@ def create_export_tab():
 def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
     """SceneオブジェクトをGenerateタブの各コンポーネント値に変換する。"""
     scene_dir = proj.scene_dir(scene.scene_id)
+    if _ensure_scene_image_history(scene, scene_dir):
+        proj.save_scene(scene)
     img_path = scene.image_path(scene_dir)
     vid_path = scene.video_path(scene_dir)
     vid_final_path = scene.video_final_path(scene_dir)
+    img_history_update, img_history_preview = _image_history_ui_updates(scene, scene_dir)
     return (
         scene.scene_id,
         f"{scene.start_time:.1f}s - {scene.end_time:.1f}s",
@@ -502,6 +597,8 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
         scene.video_seed,
         scene.image_workflow or "",
         scene.video_workflow or "",
+        img_history_update,
+        img_history_preview,
         scene.video_instruction,
         scene.status,
         scene.enabled,
@@ -825,6 +922,7 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
+            gen_img_history, gen_img_history_preview, gen_img_use_saved_btn, gen_img_delete_saved_btn, gen_img_history_refresh_btn,
             gen_img_chatbot, gen_img_chat_input, gen_img_chat_send, gen_img_chat_clear,
             gen_img_seed_rand_btn, gen_img_seed_reload_btn,
             gen_vid_extra_input, gen_vid_consult_btn,
@@ -1279,6 +1377,7 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed,
             gen_img_wf, gen_vid_wf,
+            gen_img_history, gen_img_history_preview,
             gen_vid_extra_input,
             gen_status_disp, gen_enabled, current_scene_idx, gen_img_chatbot,
         ]
@@ -1286,7 +1385,7 @@ def build_app() -> gr.Blocks:
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", "", "", True, idx, [])
+                return (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", gr.update(choices=[], value=None), None, "", "", True, idx, [])
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
             return _scene_to_gen_values(scene, proj) + (idx, [])
@@ -1570,10 +1669,10 @@ def build_app() -> gr.Blocks:
         def on_regen(idx, state, plot, img_p, img_n, vid_p, vid_n, img_seed, vid_seed, img_wf, vid_wf, target="both", video_quality="preview"):
             proj = _project_from_state(state)
             if proj is None:
-                return None, None, None, "プロジェクトが読み込まれていません", gr.update()
+                return None, None, None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
             comfyui = _get_comfyui(proj)
             if not comfyui.is_available():
-                return None, None, None, f"ComfyUIに接続できません: {proj.comfyui_url}", gr.update()
+                return None, None, None, f"ComfyUIに接続できません: {proj.comfyui_url}", gr.update(), gr.update(), gr.update()
 
             scene = proj.scenes[idx]
             scene.plot = plot
@@ -1591,13 +1690,14 @@ def build_app() -> gr.Blocks:
             try:
                 gen.regenerate_scene(scene.scene_id, target=target, video_quality=video_quality)
             except Exception as e:
-                return None, None, None, f"生成エラー: {e}", gr.update()
+                return None, None, None, f"生成エラー: {e}", gr.update(), gr.update(), gr.update()
 
             updated = proj.scenes[idx]
             scene_dir = proj.scene_dir(updated.scene_id)
             img = updated.image_path(scene_dir)
             preview_vid = updated.video_preview_path(scene_dir)
             final_vid = updated.video_final_path(scene_dir)
+            history_update, history_preview = _image_history_ui_updates(updated, scene_dir, updated.active_image_version)
             samples = _build_scene_samples(proj.scenes)
             status_msg = updated.status
             if video_quality == "final":
@@ -1609,6 +1709,8 @@ def build_app() -> gr.Blocks:
                 str(final_vid) if final_vid.exists() else None,
                 status_msg,
                 gr.Dataset(samples=samples),
+                history_update,
+                history_preview,
             )
 
         _regen_inputs = [
@@ -1620,22 +1722,22 @@ def build_app() -> gr.Blocks:
         gen_regen_img_btn.click(
             fn=lambda *a: on_regen(*a, target="image"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
         gen_regen_vid_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="preview"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
         gen_regen_vid_final_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
         gen_regen_both_btn.click(
             fn=lambda *a: on_regen(*a, target="both"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
 
         def _refresh_scene_status_from_files(scene: Scene, scene_dir: Path) -> None:
@@ -1652,7 +1754,7 @@ def build_app() -> gr.Blocks:
         def on_delete_media(idx, state, media_type):
             proj = _project_from_state(state)
             if proj is None:
-                return None, None, None, "プロジェクトが読み込まれていません", gr.update()
+                return None, None, None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
 
             scene = proj.scenes[idx]
             scene_dir = proj.scene_dir(scene.scene_id)
@@ -1669,9 +1771,12 @@ def build_app() -> gr.Blocks:
                 deleted_msg = f"{target_path.name} を削除しました"
             else:
                 deleted_msg = f"{target_path.name} は存在しません"
+            if media_type == "image":
+                scene.active_image_version = ""
 
             _refresh_scene_status_from_files(scene, scene_dir)
             proj.save_scene(scene)
+            history_update, history_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
             samples = _build_scene_samples(proj.scenes)
             return (
                 str(scene.image_path(scene_dir)) if scene.image_path(scene_dir).exists() else None,
@@ -1679,22 +1784,125 @@ def build_app() -> gr.Blocks:
                 str(scene.video_final_path(scene_dir)) if scene.video_final_path(scene_dir).exists() else None,
                 deleted_msg,
                 gr.Dataset(samples=samples),
+                history_update,
+                history_preview,
             )
 
         gen_delete_image_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "image"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
         gen_delete_preview_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "preview"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
         gen_delete_final_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "final"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns],
+            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+        )
+
+        def on_saved_image_select(idx, state, selected_name):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_version_path(scene, scene_dir, selected_name)
+            return str(selected_path) if selected_path else None
+
+        def on_saved_image_refresh(idx, state):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            if _ensure_scene_image_history(scene, scene_dir):
+                proj.save_scene(scene)
+            return _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+
+        def on_saved_image_use(idx, state, selected_name):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_version_path(scene, scene_dir, selected_name)
+            if selected_path is None:
+                return gr.update(), "選択中の画像が見つかりません", gr.update(), gr.update(), gr.update()
+
+            shutil.copy2(selected_path, scene.image_path(scene_dir))
+            scene.active_image_version = selected_path.name
+            _refresh_scene_status_from_files(scene, scene_dir)
+            proj.save_scene(scene)
+            samples = _build_scene_samples(proj.scenes)
+            history_update, history_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+            return (
+                str(scene.image_path(scene_dir)),
+                f"{selected_path.name} を本番画像に設定しました",
+                gr.Dataset(samples=samples),
+                history_update,
+                history_preview,
+            )
+
+        def on_saved_image_delete(idx, state, selected_name):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_version_path(scene, scene_dir, selected_name)
+            if selected_path is None:
+                return gr.update(), "削除対象の画像が見つかりません", gr.update(), gr.update(), gr.update()
+
+            was_active = selected_path.name == scene.active_image_version
+            selected_path.unlink()
+
+            remaining = _list_scene_image_versions(scene, scene_dir)
+            if was_active:
+                if remaining:
+                    scene.active_image_version = remaining[0].name
+                    shutil.copy2(remaining[0], scene.image_path(scene_dir))
+                else:
+                    scene.active_image_version = ""
+                    active_path = scene.image_path(scene_dir)
+                    if active_path.exists():
+                        active_path.unlink()
+
+            _refresh_scene_status_from_files(scene, scene_dir)
+            proj.save_scene(scene)
+            samples = _build_scene_samples(proj.scenes)
+            history_update, history_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+            active_img = scene.image_path(scene_dir)
+            return (
+                str(active_img) if active_img.exists() else None,
+                f"{selected_path.name} を削除しました",
+                gr.Dataset(samples=samples),
+                history_update,
+                history_preview,
+            )
+
+        gen_img_history.change(
+            fn=on_saved_image_select,
+            inputs=[current_scene_idx, project_state, gen_img_history],
+            outputs=[gen_img_history_preview],
+        )
+        gen_img_history_refresh_btn.click(
+            fn=on_saved_image_refresh,
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_img_history, gen_img_history_preview],
+        )
+        gen_img_use_saved_btn.click(
+            fn=on_saved_image_use,
+            inputs=[current_scene_idx, project_state, gen_img_history],
+            outputs=[gen_image_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+        )
+        gen_img_delete_saved_btn.click(
+            fn=on_saved_image_delete,
+            inputs=[current_scene_idx, project_state, gen_img_history],
+            outputs=[gen_image_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
 
 
@@ -1709,11 +1917,15 @@ def build_app() -> gr.Blocks:
             if proj.scenes:
                 new_idx = max(0, min(new_idx, len(proj.scenes) - 1))
                 vals = _scene_to_gen_values(proj.scenes[new_idx], proj) + (new_idx, [])
-                # index 15 は gen_status_disp: status文字列をメッセージで上書き
-                vals = vals[:15] + (status_msg,) + vals[16:]
+                # index 17 は gen_status_disp: status文字列をメッセージで上書き
+                vals = vals[:17] + (status_msg,) + vals[18:]
             else:
-                vals = (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", "",
-                        status_msg, True, 0, [])
+                vals = (
+                    None, "", "", None, None, None, "", "", "", "",
+                    -1, -1, "", "",
+                    gr.update(choices=[], value=None), None,
+                    "", status_msg, True, 0, []
+                )
             samples = _build_scene_samples(proj.scenes)
             return vals + (gr.Dataset(samples=samples), False)
 
@@ -1749,7 +1961,7 @@ def build_app() -> gr.Blocks:
             if not confirm:
                 # 1回目クリック: 警告表示のみ、確認待ち状態へ
                 no_op = [gr.update()] * len(gen_scene_outputs)
-                no_op[15] = "⚠️ 削除確認: もう一度「削除」を押すと削除します"
+                no_op[17] = "⚠️ 削除確認: もう一度「削除」を押すと削除します"
                 return tuple(no_op) + (gr.update(), True)
             # 2回目クリック: 実際に削除
             proj.delete_scene(idx)
