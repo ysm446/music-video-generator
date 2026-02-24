@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -64,6 +65,12 @@ BASE_DIR = (Path(_base_dir_cfg) if Path(_base_dir_cfg).is_absolute()
 _batch_gen: Optional[BatchGenerator] = None
 _batch_log: list[str] = []
 _batch_lock = threading.Lock()
+_batch_started_at: Optional[float] = None
+_batch_finished_at: Optional[float] = None
+_batch_current_task: str = ""
+_batch_mode_label: str = ""
+_batch_run_id: int = 0
+_batch_stop_requested: bool = False
 
 # ---- ユーティリティ ----
 
@@ -124,6 +131,14 @@ def _project_from_state(state: dict | None) -> Optional[Project]:
         return Project.load(BASE_DIR / state["project_name"])
     except Exception:
         return None
+
+
+def _format_elapsed(seconds: float) -> str:
+    total = max(0, int(seconds))
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 def _scene_status_label(scene: Scene) -> str:
     return f"{scene.status_icon()} {scene.scene_id:03d}"
@@ -1703,7 +1718,8 @@ def build_app() -> gr.Blocks:
         # ============================================================
 
         def _start_batch(state, target: str, video_quality: str = "preview"):
-            global _batch_gen, _batch_log
+            global _batch_gen, _batch_log, _batch_started_at, _batch_finished_at
+            global _batch_current_task, _batch_mode_label, _batch_run_id, _batch_stop_requested
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません"
@@ -1712,25 +1728,70 @@ def build_app() -> gr.Blocks:
                 return f"ComfyUIに接続できません: {proj.comfyui_url}"
 
             with _batch_lock:
+                if _batch_gen and _batch_gen.is_running:
+                    return "既に一括生成が実行中です（停止してから再実行してください）"
+
+                _batch_run_id += 1
+                run_id = _batch_run_id
                 _batch_log = []
+                _batch_started_at = time.monotonic()
+                _batch_finished_at = None
+                _batch_stop_requested = False
+                _batch_current_task = "初期化中..."
+                if target == "image":
+                    _batch_mode_label = "画像の一括生成"
+                elif video_quality == "final":
+                    _batch_mode_label = "最終版動画の一括生成"
+                else:
+                    _batch_mode_label = "プレビュー動画の一括生成"
                 _batch_gen = BatchGenerator(proj, comfyui)
 
+            with _batch_lock:
+                _batch_log.append(f"{_batch_mode_label} を開始")
+
             def on_progress(sid, total, msg):
+                global _batch_current_task
                 with _batch_lock:
+                    _batch_current_task = msg
                     _batch_log.append(msg)
                     if len(_batch_log) > 20:
                         _batch_log.pop(0)
 
             def on_error(sid, msg):
+                global _batch_current_task
                 with _batch_lock:
+                    _batch_current_task = f"[ERROR] {msg}"
                     _batch_log.append(f"[ERROR] {msg}")
 
-            _batch_gen.run_async(on_progress=on_progress, on_error=on_error, target=target, video_quality=video_quality)
-            if target == "image":
-                return "画像の一括生成を開始しました"
-            if video_quality == "final":
-                return "最終版動画の一括生成を開始しました"
-            return "プレビュー動画の一括生成を開始しました"
+            worker = _batch_gen.run_async(
+                on_progress=on_progress,
+                on_error=on_error,
+                target=target,
+                video_quality=video_quality,
+            )
+
+            def _watch_batch(this_run_id: int):
+                global _batch_finished_at, _batch_current_task
+                worker.join()
+                with _batch_lock:
+                    if this_run_id != _batch_run_id:
+                        return
+                    now = time.monotonic()
+                    _batch_finished_at = now
+                    elapsed = _format_elapsed(now - (_batch_started_at or now))
+                    if _batch_gen and _batch_gen.is_running:
+                        return
+                    if _batch_stop_requested:
+                        _batch_current_task = "停止済み"
+                        _batch_log.append(f"停止: 合計 {elapsed}")
+                    else:
+                        _batch_current_task = "完了"
+                        _batch_log.append(f"完了: 合計 {elapsed}")
+                    if len(_batch_log) > 20:
+                        _batch_log[:] = _batch_log[-20:]
+
+            threading.Thread(target=_watch_batch, args=(run_id,), daemon=True).start()
+            return f"{_batch_mode_label}を開始しました"
 
         def on_batch_image_start(state):
             return _start_batch(state, target="image")
@@ -1739,15 +1800,43 @@ def build_app() -> gr.Blocks:
             return _start_batch(state, target="video", video_quality="preview")
 
         def on_batch_stop():
-            global _batch_gen
+            global _batch_current_task, _batch_stop_requested
             if _batch_gen:
                 _batch_gen.stop()
+                with _batch_lock:
+                    _batch_stop_requested = True
+                    _batch_current_task = "停止リクエスト送信済み"
                 return "停止リクエストを送信しました"
             return "実行中の生成はありません"
 
         def on_batch_progress_poll():
             with _batch_lock:
-                return "\n".join(_batch_log[-10:]) if _batch_log else "待機中..."
+                if _batch_started_at is None:
+                    return "待機中..."
+                now = time.monotonic()
+                elapsed = _format_elapsed(now - _batch_started_at)
+                if _batch_finished_at is not None:
+                    total = _format_elapsed(_batch_finished_at - _batch_started_at)
+                    state_label = "完了"
+                elif _batch_gen and _batch_gen.is_running:
+                    total = "-"
+                    state_label = "実行中"
+                else:
+                    total = "-"
+                    state_label = "停止"
+
+                lines = [
+                    f"状態: {state_label}",
+                    f"モード: {_batch_mode_label or '-'}",
+                    f"現在処理: {_batch_current_task or '-'}",
+                    f"経過時間: {elapsed}",
+                    f"最終合計時間: {total}",
+                    "",
+                    "---- ログ ----",
+                ]
+                logs = _batch_log[-8:] if _batch_log else ["(ログなし)"]
+                lines.extend(logs)
+                return "\n".join(lines)
 
         def on_batch_final_start(state):
             return _start_batch(state, target="video", video_quality="final")
@@ -1756,6 +1845,10 @@ def build_app() -> gr.Blocks:
         gen_batch_preview_btn.click(fn=on_batch_preview_start, inputs=[project_state], outputs=[gen_progress])
         gen_stop_btn.click(fn=on_batch_stop, outputs=[gen_progress])
         gen_batch_final_btn.click(fn=on_batch_final_start, inputs=[project_state], outputs=[gen_progress])
+        gr.Timer(value=1.0, active=True).tick(
+            fn=on_batch_progress_poll,
+            outputs=[gen_progress],
+        )
 
 
         # ============================================================
