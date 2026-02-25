@@ -488,8 +488,9 @@ def create_generate_tab():
                 gen_next_btn = gr.Button("Next ▶")
 
                 with gr.Accordion("一括生成", open=False):
-                    gen_batch_img_btn = gr.Button("画像", variant="primary")
                     gen_batch_img_prompt_btn = gr.Button("画像プロンプト")
+                    gen_batch_img_btn = gr.Button("画像", variant="primary")
+                    gen_batch_vid_prompt_btn = gr.Button("動画プロンプト")
                     gen_batch_preview_btn = gr.Button("プレビュー動画")
                     gen_batch_final_btn = gr.Button("最終版動画", variant="secondary")
                     gen_stop_btn = gr.Button("停止")
@@ -634,7 +635,7 @@ def create_generate_tab():
     return (
         gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
-        gen_batch_img_btn, gen_batch_img_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+        gen_batch_img_prompt_btn, gen_batch_img_btn, gen_batch_vid_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
         gen_scene_id_disp, gen_time_disp, gen_plot,
         gen_image_preview, gen_video_preview, gen_video_final_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -901,6 +902,50 @@ def _generate_image_prompt_from_plot(plot: str, common_prompt: str, proj: Option
     return prompt
 
 
+def _extract_video_prompt_update(raw_text: str) -> tuple[str, str] | None:
+    """Extract prompt/negative from [VIDEO_PROMPT_UPDATE] block."""
+    stripped = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL)
+    block = re.search(r"\[VIDEO_PROMPT_UPDATE\](.*?)\[/VIDEO_PROMPT_UPDATE\]", stripped, re.DOTALL | re.IGNORECASE)
+    if not block:
+        return None
+    body = block.group(1)
+    prompt_m = re.search(r"^\s*Prompt:\s*(.*?)(?=\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+    neg_m = re.search(r"^\s*Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+    if not prompt_m:
+        return None
+    prompt = prompt_m.group(1).strip()
+    neg = neg_m.group(1).strip() if neg_m else ""
+    neg = re.sub(r"\[/?VIDEO_PROMPT_UPDATE\].*", "", neg, flags=re.DOTALL).strip()
+    return prompt, neg
+
+
+def _generate_video_prompt_for_scene(scene: Scene, proj: Optional[Project]) -> tuple[str, str]:
+    """Generate video prompt/negative using available scene fields."""
+    instruction_text = "追加指示なし。画像やプロンプトから自然で一貫性のある動画プロンプトを提案してください。"
+    text_content = (
+        "これはWAN2.2 img2video向け動画プロンプトの生成タスクです。\n\n"
+        f"【シーン説明】\n{(scene.plot or '(なし)').strip()}\n\n"
+        f"【画像プロンプト（生成済み画像の内容）】\n{(scene.image_prompt or '(なし)').strip()}\n\n"
+        f"【追加指示】{instruction_text}\n\n"
+        "上記情報をもとに、WAN2.2 img2video向けの動画プロンプトを英語で生成してください。\n"
+        "以下の3要素を含めてください:\n"
+        "- Scene: 場面・背景・雰囲気の描写\n"
+        "- Action: 被写体・人物の動き\n"
+        "- Camera: カメラワーク（zoom in/out, pan left/right, tracking shot 等）\n\n"
+        "以下のフォーマットのみで回答してください（説明不要）:\n"
+        "[VIDEO_PROMPT_UPDATE]\n"
+        "Prompt: <Scene: ..., Action: ..., Camera: ...>\n"
+        "Negative: <ネガティブプロンプト、または空>\n"
+        "[/VIDEO_PROMPT_UPDATE]"
+    )
+    full = "".join(_llm_chat_stream([{"role": "user", "content": text_content}], proj))
+    parsed = _extract_video_prompt_update(full)
+    if parsed:
+        return parsed
+    cleaned = re.sub(r"<think>.*?</think>", "", full, flags=re.DOTALL).strip()
+    return cleaned or "Scene: cinematic scene, Action: subtle natural motion, Camera: slow cinematic pan", ""
+
+
 def _build_plan_chat_system(proj: Optional[Project]) -> str:
     """計画タブのLLMチャット用システムプロンプトを構築する。
     プロジェクトのコンセプトと既存シーン計画をコンテキストとして含める。
@@ -1080,7 +1125,7 @@ def build_app() -> gr.Blocks:
         (
             gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
-            gen_batch_img_btn, gen_batch_img_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+            gen_batch_img_prompt_btn, gen_batch_img_btn, gen_batch_vid_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
             gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview, gen_video_final_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -1831,22 +1876,14 @@ def build_app() -> gr.Blocks:
                 yield gr.update(), gr.update(), f"LLMエラー: {e}"
                 return
 
-            # パース
-            stripped = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
-            block = re.search(r"\[VIDEO_PROMPT_UPDATE\](.*?)\[/VIDEO_PROMPT_UPDATE\]", stripped, re.DOTALL)
-            if block:
-                body = block.group(1)
-                prompt_m = re.search(r"^\s*Prompt:\s*(.*?)(?=\n\s*Negative:|\Z)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
-                neg_m = re.search(r"^\s*Negative:\s*(.*)", body, re.DOTALL | re.IGNORECASE | re.MULTILINE)
-                if prompt_m:
-                    new_prompt = prompt_m.group(1).strip()
-                    new_neg = neg_m.group(1).strip() if neg_m else ""
-                    new_neg = re.sub(r"\[/?VIDEO_PROMPT_UPDATE\].*", "", new_neg, flags=re.DOTALL).strip()
-                    _placeholders = {"(空)", "（空）", "(empty)", "empty", "none", "(none)"}
-                    if not new_neg or new_neg.lower() in _placeholders:
-                        new_neg = vid_n or ""
-                    yield new_prompt, new_neg, "動画プロンプトを更新しました"
-                    return
+            parsed = _extract_video_prompt_update(full_response)
+            if parsed:
+                new_prompt, new_neg = parsed
+                _placeholders = {"(空)", "（空）", "(empty)", "empty", "none", "(none)"}
+                if not new_neg or new_neg.lower() in _placeholders:
+                    new_neg = vid_n or ""
+                yield new_prompt, new_neg, "動画プロンプトを更新しました"
+                return
 
             yield gr.update(), gr.update(), "動画プロンプトを更新できませんでした（フォーマット不一致）"
 
@@ -2354,7 +2391,7 @@ def build_app() -> gr.Blocks:
             if proj is None:
                 return "プロジェクトが読み込まれていません"
 
-            is_prompt_mode = target == "image_prompt"
+            is_prompt_mode = target in ("image_prompt", "video_prompt")
 
             # 画像/動画の実生成前はローカルLLMを開放してVRAMを節約
             if not is_prompt_mode:
@@ -2383,7 +2420,7 @@ def build_app() -> gr.Blocks:
                 _batch_current_task = "開始準備中..."
 
                 if is_prompt_mode:
-                    _batch_mode_label = "画像プロンプト生成"
+                    _batch_mode_label = "画像プロンプト生成" if target == "image_prompt" else "動画プロンプト生成"
                 elif target == "image":
                     _batch_mode_label = "画像生成"
                 elif video_quality == "final":
@@ -2420,21 +2457,39 @@ def build_app() -> gr.Blocks:
                         if not scene.enabled:
                             on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は無効化されているためスキップ")
                             continue
-                        if (scene.image_prompt or "").strip():
-                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は画像プロンプト入力済みのためスキップ")
-                            continue
-                        if not (scene.plot or "").strip():
-                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はシーン説明が空のためスキップ")
-                            continue
-                        try:
-                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像プロンプト生成中...")
-                            scene.image_prompt = _generate_image_prompt_from_plot(scene.plot, common_prompt, proj)
-                            if scene.status == "empty":
-                                scene.status = "plot_done"
-                            proj.save_scene(scene)
-                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
-                        except Exception as e:
-                            on_error(scene.scene_id, f"画像プロンプト生成失敗: {e}")
+                        if target == "image_prompt":
+                            if (scene.image_prompt or "").strip():
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は画像プロンプト入力済みのためスキップ")
+                                continue
+                            if not (scene.plot or "").strip():
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はシーン説明が空のためスキップ")
+                                continue
+                            try:
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像プロンプト生成中...")
+                                scene.image_prompt = _generate_image_prompt_from_plot(scene.plot, common_prompt, proj)
+                                if scene.status == "empty":
+                                    scene.status = "plot_done"
+                                proj.save_scene(scene)
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
+                            except Exception as e:
+                                on_error(scene.scene_id, f"画像プロンプト生成失敗: {e}")
+                        else:
+                            if (scene.video_prompt or "").strip():
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は動画プロンプト入力済みのためスキップ")
+                                continue
+                            if not (scene.plot or "").strip() and not (scene.image_prompt or "").strip():
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は入力情報不足のためスキップ")
+                                continue
+                            try:
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 動画プロンプト生成中...")
+                                new_prompt, new_neg = _generate_video_prompt_for_scene(scene, proj)
+                                scene.video_prompt = new_prompt
+                                if not (scene.video_negative or "").strip() and (new_neg or "").strip():
+                                    scene.video_negative = new_neg
+                                proj.save_scene(scene)
+                                on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
+                            except Exception as e:
+                                on_error(scene.scene_id, f"動画プロンプト生成失敗: {e}")
 
                 worker = threading.Thread(target=_run_prompt_batch, daemon=True)
                 worker.start()
@@ -2474,6 +2529,9 @@ def build_app() -> gr.Blocks:
 
         def on_batch_image_prompt_start(state):
             return _start_batch(state, target="image_prompt")
+
+        def on_batch_video_prompt_start(state):
+            return _start_batch(state, target="video_prompt")
 
         def on_batch_preview_start(state):
             return _start_batch(state, target="video", video_quality="preview")
@@ -2523,8 +2581,9 @@ def build_app() -> gr.Blocks:
         def on_batch_final_start(state):
             return _start_batch(state, target="video", video_quality="final")
 
-        gen_batch_img_btn.click(fn=on_batch_image_start, inputs=[project_state], outputs=[gen_progress])
         gen_batch_img_prompt_btn.click(fn=on_batch_image_prompt_start, inputs=[project_state], outputs=[gen_progress])
+        gen_batch_img_btn.click(fn=on_batch_image_start, inputs=[project_state], outputs=[gen_progress])
+        gen_batch_vid_prompt_btn.click(fn=on_batch_video_prompt_start, inputs=[project_state], outputs=[gen_progress])
         gen_batch_preview_btn.click(fn=on_batch_preview_start, inputs=[project_state], outputs=[gen_progress])
         gen_stop_btn.click(fn=on_batch_stop, outputs=[gen_progress])
         gen_batch_final_btn.click(fn=on_batch_final_start, inputs=[project_state], outputs=[gen_progress])
