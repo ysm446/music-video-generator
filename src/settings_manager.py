@@ -29,6 +29,7 @@ DEFAULT_SETTINGS: dict = {
     "model": "qwen3-vl-4b (推奨)",
     "export_quality": "プレビュー (640×360)",
     "export_with_music": True,
+    "export_loop_music": False,
     "export_audio_fade_in": False,
     "export_audio_fade_in_sec": 1.0,
     "export_audio_fade_out": False,

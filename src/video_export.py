@@ -19,6 +19,7 @@ class VideoExporter:
         self,
         output_filename: str = "final.mp4",
         with_music: bool = True,
+        loop_music: bool = False,
         video_quality: str = "preview",
         audio_fade_in: bool = False,
         audio_fade_in_seconds: float = 1.0,
@@ -32,6 +33,7 @@ class VideoExporter:
         Args:
             output_filename: 出力ファイル名
             with_music: 音楽ファイルを合成するか
+            loop_music: 音楽をループして動画尺まで伸ばすか
             video_quality: "preview" または "final"（finalはプレビューにフォールバック）
 
         Returns:
@@ -89,6 +91,7 @@ class VideoExporter:
             # 音楽合成
             music_path = proj.absolute_music_path()
             if with_music and music_path and music_path.exists():
+                music_input_args = ["-stream_loop", "-1"] if loop_music else []
                 audio_filters: list[str] = []
                 if audio_fade_in and a_fade_in_sec > 0:
                     audio_filters.append(f"afade=t=in:st=0:d={a_fade_in_sec:.3f}")
@@ -105,6 +108,7 @@ class VideoExporter:
                     cmd = [
                         "ffmpeg", "-y",
                         "-i", str(merged_video),
+                        *music_input_args,
                         "-i", str(music_path),
                         "-filter_complex", ";".join(filter_parts),
                         "-map", "[vout]",
@@ -117,31 +121,33 @@ class VideoExporter:
                         cmd += ["-map", "[aout]"]
                     else:
                         cmd += ["-map", "1:a:0"]
-                    cmd += ["-c:a", "aac", "-shortest", str(output_path)]
+                    cmd += ["-c:a", "aac", "-t", f"{total_duration:.3f}", str(output_path)]
                     _run_ffmpeg(cmd)
                 elif audio_filters:
                     _run_ffmpeg([
                         "ffmpeg", "-y",
                         "-i", str(merged_video),
+                        *music_input_args,
                         "-i", str(music_path),
                         "-filter_complex", f"[1:a]{','.join(audio_filters)}[aout]",
                         "-map", "0:v:0",
                         "-map", "[aout]",
                         "-c:v", "copy",
                         "-c:a", "aac",
-                        "-shortest",
+                        "-t", f"{total_duration:.3f}",
                         str(output_path),
                     ])
                 else:
                     _run_ffmpeg([
                         "ffmpeg", "-y",
                         "-i", str(merged_video),
+                        *music_input_args,
                         "-i", str(music_path),
                         "-map", "0:v:0",
                         "-map", "1:a:0",
                         "-c:v", "copy",
                         "-c:a", "aac",
-                        "-shortest",
+                        "-t", f"{total_duration:.3f}",
                         str(output_path),
                     ])
                 merged_video.unlink(missing_ok=True)
