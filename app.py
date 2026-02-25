@@ -840,7 +840,27 @@ def _llm_chat_stream(messages: list[dict], proj: Optional[Project]):
     llm_url = proj.llm_url if proj else _cfg.get("llm", {}).get("url", "http://localhost:11434/v1")
     llm_model = _cfg.get("llm", {}).get("model", "qwen3-vl")
     client = LLMClient(base_url=llm_url, model=llm_model)
-    yield from client.chat_stream(messages)
+    try:
+        yield from client.chat_stream(messages)
+        return
+    except Exception as e:
+        err = str(e).lower()
+        is_model_not_found = ("model" in err) and ("not found" in err or "does not exist" in err or "404" in err)
+        if not is_model_not_found:
+            raise
+
+        model_ids = client.list_model_ids()
+        fallback = next((m for m in model_ids if m != llm_model), None)
+        if not fallback:
+            avail = ", ".join(model_ids) if model_ids else "(取得できませんでした)"
+            raise RuntimeError(
+                f"LLMモデル '{llm_model}' が見つかりません。config.yaml の llm.model を修正してください。利用可能モデル: {avail}"
+            ) from e
+
+        # 自動フォールバック（同一起動中）
+        _cfg.setdefault("llm", {})["model"] = fallback
+        retry_client = LLMClient(base_url=llm_url, model=fallback)
+        yield from retry_client.chat_stream(messages)
 
 
 def _llm_bulk(concept, scene_count, scene_duration, refs, proj,

@@ -52,6 +52,19 @@ class LLMClient:
         """チャット応答を文字列で返す（非ストリーム）。"""
         return "".join(self.chat_stream(messages, temperature, max_tokens))
 
+    def list_model_ids(self) -> list[str]:
+        """接続先APIで利用可能なモデルID一覧を返す。"""
+        try:
+            resp = self.client.models.list()
+            ids: list[str] = []
+            for item in getattr(resp, "data", []) or []:
+                mid = getattr(item, "id", None)
+                if isinstance(mid, str) and mid:
+                    ids.append(mid)
+            return ids
+        except Exception:
+            return []
+
     # ---- 全シーン一括プロンプト生成 ----
 
     def generate_all_scene_prompts(
