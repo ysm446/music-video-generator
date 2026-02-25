@@ -563,6 +563,7 @@ def create_generate_tab():
                                     gen_img_chat_send = gr.Button("送信", variant="primary", scale=3)
                                     gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
                         with gr.Row():
+                            gen_generate_img_prompt_btn = gr.Button("画像プロンプトの生成", variant="secondary")
                             gen_regen_img_btn = gr.Button("画像の生成", variant="primary")
                             gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
                             gen_reset_scene_from_image_btn = gr.Button("このシーンをリセット", variant="stop")
@@ -665,7 +666,7 @@ def create_generate_tab():
         gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
         gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
         gen_reset_scene_from_image_btn, gen_reset_scene_from_preview_btn, gen_reset_scene_from_final_btn,
-        gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
+        gen_generate_img_prompt_btn, gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
         gen_status_disp,
         gen_vid_preview_history, gen_vid_preview_history_player,
         gen_vid_preview_use_btn, gen_vid_preview_delete_saved_btn, gen_vid_preview_history_refresh_btn,
@@ -1291,7 +1292,7 @@ def build_app() -> gr.Blocks:
             gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
             gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
             gen_reset_scene_from_image_btn, gen_reset_scene_from_preview_btn, gen_reset_scene_from_final_btn,
-            gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
+            gen_generate_img_prompt_btn, gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
             gen_status_disp,
             gen_vid_preview_history, gen_vid_preview_history_player,
             gen_vid_preview_use_btn, gen_vid_preview_delete_saved_btn, gen_vid_preview_history_refresh_btn,
@@ -1881,6 +1882,26 @@ def build_app() -> gr.Blocks:
                 gen_vid_extra_input, gen_enabled,
             ],
             outputs=[gen_status_disp, gen_scene_btns],
+        )
+
+        def on_gen_image_prompt_generate(idx, state, plot):
+            proj = _project_from_state(state)
+            if proj is None:
+                return gr.update(), "プロジェクトが読み込まれていません"
+            if not (plot or "").strip():
+                return gr.update(), "シーン説明が空のため生成できません"
+            try:
+                settings = settings_manager.load(proj.project_dir)
+                common_prompt = settings.get("batch_image_prompt_common", "")
+                generated = _generate_image_prompt_from_plot(plot, common_prompt, proj)
+                return generated, "画像プロンプトを生成しました"
+            except Exception as e:
+                return gr.update(), f"画像プロンプト生成エラー: {e}"
+
+        gen_generate_img_prompt_btn.click(
+            fn=on_gen_image_prompt_generate,
+            inputs=[current_scene_idx, project_state, gen_plot],
+            outputs=[gen_img_prompt, gen_status_disp],
         )
 
 
