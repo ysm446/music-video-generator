@@ -488,17 +488,6 @@ def create_generate_tab():
         with gr.Row():
             # --- サイドバー ---
             with gr.Column(scale=1, min_width=140):
-                gr.Markdown("### シーン一覧")
-                gen_scene_btns = gr.Dataset(
-                    label="",
-                    components=[gr.Textbox(visible=False)],
-                    samples=[],
-                    type="index",
-                    headers=["シーン"],
-                )
-                gen_prev_btn = gr.Button("◀ Prev")
-                gen_next_btn = gr.Button("Next ▶")
-
                 with gr.Accordion("一括生成", open=False):
                     gen_batch_img_prompt_btn = gr.Button("画像プロンプト")
                     gen_batch_img_btn = gr.Button("画像", variant="primary")
@@ -507,6 +496,19 @@ def create_generate_tab():
                     gen_batch_final_btn = gr.Button("最終版動画", variant="secondary")
                     gen_stop_btn = gr.Button("停止")
                     gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
+                gen_task_debug = gr.Textbox(label="生成キューデバッグ", interactive=False, lines=8)
+                gr.Markdown("### シーン一覧")
+                gen_scene_btns = gr.Dataset(
+                    label="",
+                    components=[gr.Textbox(visible=False)],
+                    samples=[],
+                    type="index",
+                    headers=["シーン"],
+                    samples_per_page=1000,
+                )
+                with gr.Row():
+                    gen_prev_btn = gr.Button("◀ Prev")
+                    gen_next_btn = gr.Button("Next ▶")
 
             # --- メインエリア ---
             with gr.Column(scale=4):
@@ -652,6 +654,7 @@ def create_generate_tab():
         gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
         gen_batch_img_prompt_btn, gen_batch_img_btn, gen_batch_vid_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+        gen_task_debug,
         gen_scene_id_disp, gen_time_disp, gen_plot,
         gen_image_preview, gen_video_preview, gen_video_final_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -1278,6 +1281,7 @@ def build_app() -> gr.Blocks:
             gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
             gen_batch_img_prompt_btn, gen_batch_img_btn, gen_batch_vid_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+            gen_task_debug,
             gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview, gen_video_final_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -2179,20 +2183,154 @@ def build_app() -> gr.Blocks:
             gen_vid_preview_history, gen_vid_preview_history_player,
             gen_vid_final_history, gen_vid_final_history_player,
         ]
+
+        # 生成タスクキュー（単体生成ボタン用）
+        _regen_queue: list[dict] = []
+        _regen_running: Optional[dict] = None
+        _regen_worker_running = False
+        _regen_next_id = 1
+        _regen_logs: list[str] = []
+        _regen_dirty = False
+        _regen_lock = threading.Lock()
+
+        def _append_regen_log(msg: str):
+            _regen_logs.append(msg)
+            if len(_regen_logs) > 40:
+                del _regen_logs[:-40]
+
+        def _format_regen_debug() -> str:
+            running = _regen_running
+            pending = len(_regen_queue)
+            lines = [
+                f"実行中: {running['label'] if running else '-'}",
+                f"待機数: {pending}",
+                "",
+                "---- ログ ----",
+            ]
+            lines.extend(_regen_logs[-12:] if _regen_logs else ["(ログなし)"])
+            return "\n".join(lines)
+
+        def _regen_worker():
+            nonlocal _regen_running, _regen_worker_running, _regen_dirty
+            while True:
+                with _regen_lock:
+                    if not _regen_queue:
+                        _regen_running = None
+                        _regen_worker_running = False
+                        return
+                    task = _regen_queue.pop(0)
+                    _regen_running = task
+                    _append_regen_log(f"開始: {task['label']}")
+                try:
+                    result = on_regen(
+                        *task["args"],
+                        target=task["target"],
+                        video_quality=task["video_quality"],
+                    )
+                    status_msg = result[3] if isinstance(result, tuple) and len(result) > 3 else "完了"
+                except Exception as e:
+                    status_msg = f"生成エラー: {e}"
+                with _regen_lock:
+                    _append_regen_log(f"完了: {task['label']} -> {status_msg}")
+                    _regen_running = None
+                    _regen_dirty = True
+
+        def _enqueue_regen(*args, target="image", video_quality="preview"):
+            nonlocal _regen_next_id, _regen_worker_running
+            idx, state = args[0], args[1]
+            proj = _project_from_state(state)
+            if proj is None:
+                return "プロジェクトが読み込まれていません", _format_regen_debug()
+            try:
+                scene = proj.scenes[max(0, min(int(idx), len(proj.scenes) - 1))]
+                sid = scene.scene_id
+            except Exception:
+                sid = int(idx) + 1
+            mode_label = "画像" if target == "image" else ("最終版動画" if video_quality == "final" else "プレビュー動画")
+            with _regen_lock:
+                task_id = _regen_next_id
+                _regen_next_id += 1
+                label = f"#{task_id} シーン{sid} {mode_label}"
+                _regen_queue.append({
+                    "id": task_id,
+                    "label": label,
+                    "args": args,
+                    "target": target,
+                    "video_quality": video_quality,
+                })
+                _append_regen_log(f"追加: {label}")
+                if not _regen_worker_running:
+                    _regen_worker_running = True
+                    threading.Thread(target=_regen_worker, daemon=True).start()
+                debug = _format_regen_debug()
+            return f"生成キューに追加しました: {label}", debug
+
+        def on_regen_queue_poll(state, idx):
+            nonlocal _regen_dirty
+            with _regen_lock:
+                debug_text = _format_regen_debug()
+                refresh_needed = _regen_dirty
+                _regen_dirty = False
+            if refresh_needed:
+                proj = _project_from_state(state)
+                if proj is not None:
+                    idx = max(0, min(int(idx), len(proj.scenes) - 1))
+                    scene = proj.scenes[idx]
+                    scene_dir = proj.scene_dir(scene.scene_id)
+                    img_hist_update, img_hist_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+                    vid_preview_hist_update, vid_preview_hist_player = _video_history_ui_updates(scene, scene_dir, "preview", scene.active_video_preview_version)
+                    vid_final_hist_update, vid_final_hist_player = _video_history_ui_updates(scene, scene_dir, "final", scene.active_video_final_version)
+                    return (
+                        debug_text,
+                        gr.Dataset(samples=_build_scene_samples(proj.scenes)),
+                        str(scene.image_path(scene_dir)) if scene.image_path(scene_dir).exists() else None,
+                        str(scene.video_preview_path(scene_dir)) if scene.video_preview_path(scene_dir).exists() else None,
+                        str(scene.video_final_path(scene_dir)) if scene.video_final_path(scene_dir).exists() else None,
+                        scene.status,
+                        img_hist_update,
+                        img_hist_preview,
+                        vid_preview_hist_update,
+                        vid_preview_hist_player,
+                        vid_final_hist_update,
+                        vid_final_hist_player,
+                    )
+            return (
+                debug_text,
+                gr.update(),
+                gr.update(), gr.update(), gr.update(),
+                gr.update(),
+                gr.update(), gr.update(),
+                gr.update(), gr.update(),
+                gr.update(), gr.update(),
+            )
+
         gen_regen_img_btn.click(
-            fn=lambda *a: on_regen(*a, target="image"),
+            fn=lambda *a: _enqueue_regen(*a, target="image"),
             inputs=_regen_inputs,
-            outputs=_regen_outputs,
+            outputs=[gen_status_disp, gen_task_debug],
         )
         gen_regen_vid_btn.click(
-            fn=lambda *a: on_regen(*a, target="video", video_quality="preview"),
+            fn=lambda *a: _enqueue_regen(*a, target="video", video_quality="preview"),
             inputs=_regen_inputs,
-            outputs=_regen_outputs,
+            outputs=[gen_status_disp, gen_task_debug],
         )
         gen_regen_vid_final_btn.click(
-            fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
+            fn=lambda *a: _enqueue_regen(*a, target="video", video_quality="final"),
             inputs=_regen_inputs,
-            outputs=_regen_outputs,
+            outputs=[gen_status_disp, gen_task_debug],
+        )
+        gr.Timer(value=1.0, active=True).tick(
+            fn=on_regen_queue_poll,
+            inputs=[project_state, current_scene_idx],
+            outputs=[
+                gen_task_debug,
+                gen_scene_btns,
+                gen_image_preview, gen_video_preview, gen_video_final_preview,
+                gen_status_disp,
+                gen_img_history, gen_img_history_preview,
+                gen_vid_preview_history, gen_vid_preview_history_player,
+                gen_vid_final_history, gen_vid_final_history_player,
+            ],
         )
 
         def _refresh_scene_status_from_files(scene: Scene, scene_dir: Path) -> None:
