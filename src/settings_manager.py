@@ -27,6 +27,14 @@ DEFAULT_SETTINGS: dict = {
     "video_frame_count": 81,
     "scene_duration": 5,
     "model": "qwen3-vl-4b (推奨)",
+    "export_quality": "プレビュー (640×360)",
+    "export_with_music": True,
+    "export_audio_fade_in": False,
+    "export_audio_fade_in_sec": 1.0,
+    "export_audio_fade_out": False,
+    "export_audio_fade_out_sec": 1.0,
+    "export_video_fade_out_black": False,
+    "export_video_fade_out_sec": 1.0,
 }
 
 # アプリルートのグローバル設定ファイル（最後に開いたプロジェクトを記憶）
