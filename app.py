@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 import shutil
 import threading
 import time
@@ -445,7 +446,7 @@ def create_plan_tab():
                 with gr.Row():
                     plan_vid_common_save_btn = gr.Button("動画共通指示を保存", variant="secondary")
                     plan_vid_common_status = gr.Textbox(label="", interactive=False, scale=3)
-                plan_bulk_btn = gr.Button("全シーンを一括提案（Qwen）", variant="secondary")
+                plan_bulk_btn = gr.Button("シーンの一括提案", variant="secondary")
                 plan_bulk_status = gr.Textbox(label="一括提案ステータス", interactive=False, show_label=True)
 
             # --- 右カラム: シーン計画一覧 ---
@@ -863,6 +864,76 @@ def _llm_bulk(concept, scene_count, scene_duration, refs, proj,
         start_scene_id=start_scene_id,
         reference_images=refs if refs else None,
     )
+
+
+def _extract_json_dict_from_text(text: str) -> dict:
+    """Extract JSON object from plain text or ```json fenced block."""
+    stripped = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    m = re.search(r"```json\s*([\s\S]+?)\s*```", stripped, flags=re.IGNORECASE)
+    raw = m.group(1) if m else stripped
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def _llm_propose_missing_scene(
+    proj: Project,
+    concept: str,
+    scene_idx: int,
+    scene: Scene,
+    proposed: dict[int, tuple[str, str]],
+) -> tuple[str, str]:
+    """Generate section/plot for a single scene with neighboring context."""
+
+    def _ctx_text(target_idx: int) -> str:
+        lines: list[str] = []
+        for offset in (-2, -1, 1, 2):
+            idx = target_idx + offset
+            if idx < 0 or idx >= len(proj.scenes):
+                continue
+            s = proj.scenes[idx]
+            sec = (proposed.get(s.scene_id, ("", ""))[0] or s.section or "").strip()
+            pl = (proposed.get(s.scene_id, ("", ""))[1] or s.plot or "").strip()
+            lines.append(
+                f"- scene_id={s.scene_id}, time={s.start_time:.1f}-{s.end_time:.1f}, "
+                f"section={sec or '(なし)'}, plot={pl or '(未入力)'}"
+            )
+        return "\n".join(lines) if lines else "- (前後シーンなし)"
+
+    context_text = _ctx_text(scene_idx)
+    section_hint = (scene.section or "").strip()
+    user_text = (
+        "あなたはMVのシーン構成プランナーです。\n"
+        "指定した1シーンについて、全体コンセプトを最優先に section と plot を提案してください。\n"
+        "前後シーンとの関連性は保ちつつ、内容が似すぎないように差別化してください。\n"
+        "出力は必ずJSONオブジェクトのみ。\n\n"
+        f"全体コンセプト:\n{concept}\n\n"
+        f"対象シーン:\n"
+        f"- scene_id={scene.scene_id}\n"
+        f"- time={scene.start_time:.1f}-{scene.end_time:.1f}\n"
+        f"- 既存section={section_hint or '(なし)'}\n"
+        "- 既存plot=(未入力)\n\n"
+        f"前後シーン情報:\n{context_text}\n\n"
+        "制約:\n"
+        "- 最優先は全体コンセプトへの一致\n"
+        "- section, plot は日本語\n"
+        "- plot は1〜2文で簡潔に\n"
+        "- 前後の流れが自然になるようにする\n"
+        "- 前後シーンと同じ描写・同じ展開を避ける（舞台/被写体/動き/視点のうち1つ以上を変える）\n"
+        "- ただし完全に断絶させず、物語や雰囲気の連続性は保つ\n\n"
+        "出力形式:\n"
+        "{\"section\":\"...\",\"plot\":\"...\"}"
+    )
+    raw = _llm_chat([{"role": "user", "content": user_text}], proj)
+    data = _extract_json_dict_from_text(raw)
+    section = str(data.get("section", "") or "").strip()
+    plot = str(data.get("plot", "") or "").strip()
+    if not plot:
+        # フォーマット不一致時の最小フォールバック
+        plot = re.sub(r"\s+", " ", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)).strip()[:200]
+    return section, plot
 
 
 def _llm_improve(scene_data, concept, refs, proj) -> dict:
@@ -1536,10 +1607,8 @@ def build_app() -> gr.Blocks:
         # イベントハンドラ: 計画タブ - 全シーン一括提案
         # ============================================================
 
-        _BULK_BATCH_SIZE = 10
-
         def on_bulk_generate(concept: str, state: dict):
-            """10シーンずつバッチで一括提案し、Dataframeに表示する（保存はしない）ジェネレータ。"""
+            """プロット未入力シーンのみを前後コンテキスト付きで提案し、Dataframeに表示する。"""
             proj = _project_from_state(state)
             if proj is None:
                 yield "プロジェクトが読み込まれていません", gr.update()
@@ -1548,42 +1617,33 @@ def build_app() -> gr.Blocks:
                 yield "コンセプトを入力してください", gr.update()
                 return
 
-            total = len(proj.scenes)
-            refs = list(proj.references_dir.glob("*.png"))[:4]
+            missing_indices = [i for i, s in enumerate(proj.scenes) if not (s.plot or "").strip()]
+            missing_total = len(missing_indices)
+            if missing_total == 0:
+                yield "未入力プロットのシーンはありません", gr.update()
+                return
 
             # 提案結果を一時的に保持（scene_id → (section, plot)）
             proposed: dict[int, tuple[str, str]] = {}
 
-            for batch_start in range(0, total, _BULK_BATCH_SIZE):
-                batch_end = min(batch_start + _BULK_BATCH_SIZE, total)
-                batch_count = batch_end - batch_start
-                start_id = batch_start + 1
-                end_id = batch_end
-
-                yield f"処理中: シーン {start_id}〜{end_id}/{total}...", gr.update()
-
+            for pos, scene_idx in enumerate(missing_indices, start=1):
+                scene = proj.scenes[scene_idx]
+                yield f"処理中: シーン {scene.scene_id} ({pos}/{missing_total})...", gr.update()
                 try:
-                    results = _llm_bulk(
-                        concept=concept,
-                        scene_count=batch_count,
-                        scene_duration=proj.scene_duration,
-                        refs=refs,
+                    section, plot = _llm_propose_missing_scene(
                         proj=proj,
-                        start_scene_id=start_id,
+                        concept=concept,
+                        scene_idx=scene_idx,
+                        scene=scene,
+                        proposed=proposed,
                     )
+                    if plot:
+                        proposed[scene.scene_id] = (section, plot)
                 except Exception as e:
-                    yield f"LLMエラー (シーン {start_id}〜{end_id}): {e}", gr.update()
-                    return
+                    yield f"LLMエラー (シーン {scene.scene_id}): {e}", gr.update()
+                    continue
 
-                for item in results:
-                    sid = item.get("scene_id")
-                    if sid and 1 <= sid <= total:
-                        proposed[sid] = (
-                            item.get("section", ""),
-                            item.get("plot", ""),
-                        )
-
-                # バッチ完了後にDataframeを逐次更新（既存データは保持、提案のみ上書き表示）
+                # 既存データは保持し、提案対象シーンのみ逐次上書き表示
                 df_rows = [
                     [s.scene_id,
                      f"{s.start_time:.1f}s-{s.end_time:.1f}s",
@@ -1591,10 +1651,10 @@ def build_app() -> gr.Blocks:
                      proposed[s.scene_id][1] if s.scene_id in proposed else (s.plot or "")]
                     for s in proj.scenes
                 ]
-                yield (f"シーン {start_id}〜{end_id} 提案完了（{len(proposed)}/{total}件）",
+                yield (f"シーン {scene.scene_id} 提案完了（{len(proposed)}/{missing_total}件）",
                        gr.update(value=df_rows))
 
-            yield (f"提案完了: {len(proposed)}/{total}シーン。内容を確認・編集後「全て保存」を押してください。",
+            yield (f"提案完了: {len(proposed)}/{missing_total}シーン。内容を確認・編集後「全て保存」を押してください。",
                    gr.update())
 
         plan_bulk_btn.click(
