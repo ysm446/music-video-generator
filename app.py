@@ -540,7 +540,7 @@ def create_generate_tab():
                                     gen_img_chat_send = gr.Button("送信", variant="primary", scale=3)
                                     gen_img_chat_clear = gr.Button("🗑 クリア", scale=1)
                         with gr.Row():
-                            gen_regen_img_btn = gr.Button("画像を生成", variant="primary")
+                            gen_regen_img_btn = gr.Button("画像の生成", variant="primary")
                             gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
                         with gr.Accordion("画像履歴", open=False):
                             with gr.Row():
@@ -2197,18 +2197,22 @@ def build_app() -> gr.Blocks:
         delete_confirm_state = gr.State(False)
 
         def _scene_manage_result(proj, new_idx, status_msg):
-            """シーン管理操作後の共通戻り値（gen_scene_outputs + sidebar + confirm）を組み立てる。"""
+            """Build common outputs for scene management handlers."""
             if proj.scenes:
                 new_idx = max(0, min(new_idx, len(proj.scenes) - 1))
-                vals = _scene_to_gen_values(proj.scenes[new_idx], proj) + (new_idx, [])
-                # index 17 は gen_status_disp: status文字列をメッセージで上書き
+                base = _scene_to_gen_values(proj.scenes[new_idx], proj)
+                # Keep the same order as load_gen_scene()
+                vals = base[:19] + (new_idx, []) + base[19:]
+                # index 17 is gen_status_disp
                 vals = vals[:17] + (status_msg,) + vals[18:]
             else:
+                _no_vid_hist = gr.update(choices=[], value=None)
                 vals = (
                     None, "", "", None, None, None, "", "", "", "",
                     -1, -1, "", "",
                     gr.update(choices=[], value=None), None,
-                    "", status_msg, True, 0, []
+                    "", status_msg, True, 0, [],
+                    _no_vid_hist, None, _no_vid_hist, None,
                 )
             samples = _build_scene_samples(proj.scenes)
             return vals + (gr.Dataset(samples=samples), False)
