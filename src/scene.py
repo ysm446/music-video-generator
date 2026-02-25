@@ -24,6 +24,8 @@ class Scene:
     image_seed: int = -1
     image_workflow: Optional[str] = None  # None = プロジェクトデフォルトを使用
     active_image_version: str = ""  # image_versions/ 配下で本番採用中のファイル名
+    active_video_preview_version: str = ""  # video_versions/ 配下で本番採用中のプレビュー動画ファイル名
+    active_video_final_version: str = ""    # video_versions/ 配下で本番採用中の最終版動画ファイル名
     video_prompt: str = ""
     video_negative: str = ""
     video_seed: int = -1
@@ -85,6 +87,12 @@ class Scene:
 
     def image_version_path(self, scene_dir: Path, filename: str) -> Path:
         return self.image_versions_dir(scene_dir) / filename
+
+    def video_versions_dir(self, scene_dir: Path) -> Path:
+        return scene_dir / "video_versions"
+
+    def video_version_path(self, scene_dir: Path, filename: str) -> Path:
+        return self.video_versions_dir(scene_dir) / filename
 
     def video_preview_path(self, scene_dir: Path) -> Path:
         return scene_dir / "video_preview.mp4"

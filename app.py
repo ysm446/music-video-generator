@@ -222,6 +222,86 @@ def _image_history_ui_updates(scene: Scene, scene_dir: Path, selected_name: str 
     return gr.update(choices=choices, value=selected_name), (str(selected_path) if selected_path else None)
 
 
+def _list_scene_video_versions(scene: Scene, scene_dir: Path, quality: str = "preview") -> list[Path]:
+    """動画バージョン一覧を新しい順で返す。"""
+    versions_dir = scene.video_versions_dir(scene_dir)
+    if not versions_dir.exists():
+        return []
+    suffix = "_final" if quality == "final" else "_preview"
+    return sorted(
+        [p for p in versions_dir.glob(f"video{suffix}_*.mp4") if p.is_file()],
+        key=lambda p: p.name,
+        reverse=True,
+    )
+
+
+def _selected_video_version_path(scene: Scene, scene_dir: Path, filename: str | None) -> Optional[Path]:
+    if not filename:
+        return None
+    path = scene.video_version_path(scene_dir, Path(filename).name)
+    return path if path.exists() else None
+
+
+def _video_history_ui_updates(scene: Scene, scene_dir: Path, quality: str = "preview", selected_name: str | None = None) -> tuple:
+    versions = _list_scene_video_versions(scene, scene_dir, quality)
+    choices = [p.name for p in versions]
+    if not choices:
+        return gr.update(choices=[], value=None), None
+
+    active = scene.active_video_final_version if quality == "final" else scene.active_video_preview_version
+    if selected_name not in choices:
+        selected_name = active if active in choices else choices[0]
+    selected_path = _selected_video_version_path(scene, scene_dir, selected_name)
+    return gr.update(choices=choices, value=selected_name), (str(selected_path) if selected_path else None)
+
+
+def _ensure_scene_video_history(scene: Scene, scene_dir: Path, quality: str = "preview") -> bool:
+    """video_preview.mp4 / video_final.mp4 が存在する場合、video_versions/ に登録する。"""
+    if quality == "final":
+        active_path = scene.video_final_path(scene_dir)
+        active_attr = "active_video_final_version"
+    else:
+        active_path = scene.video_preview_path(scene_dir)
+        active_attr = "active_video_preview_version"
+
+    if not active_path.exists():
+        if getattr(scene, active_attr):
+            setattr(scene, active_attr, "")
+            return True
+        return False
+
+    versions_dir = scene.video_versions_dir(scene_dir)
+    versions_dir.mkdir(parents=True, exist_ok=True)
+    changed = False
+
+    active_version = getattr(scene, active_attr)
+    if active_version:
+        active_version_path = scene.video_version_path(scene_dir, active_version)
+        if active_version_path.exists():
+            if not _files_identical(active_path, active_version_path):
+                shutil.copy2(active_path, active_version_path)
+            return changed
+
+    for version_path in _list_scene_video_versions(scene, scene_dir, quality):
+        if _files_identical(active_path, version_path):
+            if active_version != version_path.name:
+                setattr(scene, active_attr, version_path.name)
+                changed = True
+            return changed
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    suffix = "_final" if quality == "final" else "_preview"
+    imported_name = f"video{suffix}_{stamp}_imported.mp4"
+    imported_path = scene.video_version_path(scene_dir, imported_name)
+    while imported_path.exists():
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        imported_name = f"video{suffix}_{stamp}_imported.mp4"
+        imported_path = scene.video_version_path(scene_dir, imported_name)
+    shutil.copy2(active_path, imported_path)
+    setattr(scene, active_attr, imported_name)
+    return True
+
+
 # ============================================================
 # タブ1: プロジェクト
 # ============================================================
@@ -430,13 +510,12 @@ def create_generate_tab():
                         gen_insert_btn = gr.Button("＋ 後に挿入", size="sm")
                         gen_delete_btn = gr.Button("🗑 削除", size="sm", variant="stop")
 
-                # --- 統合タブ: 画像 / 動画 ---
+                # --- タブ: 画像 / プレビュー動画 / 最終版動画 ---
                 with gr.Tabs():
                     # ■ 画像タブ
                     with gr.Tab("画像"):
                         gen_image_preview = gr.Image(label="生成画像", type="filepath")
                         with gr.Row():
-                            # 左: プロンプト・シード・ワークフロー
                             with gr.Column(scale=3):
                                 gen_img_prompt = gr.Textbox(label="画像プロンプト（英語）", lines=4)
                                 gen_img_neg = gr.Textbox(label="画像ネガティブ（英語）", lines=2)
@@ -451,7 +530,6 @@ def create_generate_tab():
                                         allow_custom_value=True,
                                         scale=4,
                                     )
-                            # 右: LLM相談
                             with gr.Column(scale=2):
                                 gen_img_chatbot = gr.Chatbot(label="LLM相談", height=200)
                                 gen_img_chat_input = gr.Textbox(
@@ -479,13 +557,10 @@ def create_generate_tab():
                                 gen_img_delete_saved_btn = gr.Button("選択画像を削除", variant="stop")
                             gen_img_history_preview = gr.Image(label="選択中の保存画像", type="filepath")
 
-                    # ■ 動画タブ
-                    with gr.Tab("動画"):
+                    # ■ プレビュー動画タブ
+                    with gr.Tab("プレビュー動画"):
+                        gen_video_preview = gr.Video(label="プレビュー動画")
                         with gr.Row():
-                            gen_video_preview = gr.Video(label="プレビュー動画")
-                            gen_video_final_preview = gr.Video(label="最終版動画")
-                        with gr.Row():
-                            # 左: プロンプト・シード・ワークフロー
                             with gr.Column(scale=3):
                                 gen_vid_prompt = gr.Textbox(label="動画プロンプト（英語）", lines=3)
                                 gen_vid_neg = gr.Textbox(label="動画ネガティブ（英語）", lines=2)
@@ -500,7 +575,6 @@ def create_generate_tab():
                                         allow_custom_value=True,
                                         scale=4,
                                     )
-                            # 右: LLMプロンプト生成
                             with gr.Column(scale=2):
                                 gen_vid_extra_input = gr.Textbox(
                                     label="追加指示",
@@ -510,9 +584,42 @@ def create_generate_tab():
                                 gen_vid_consult_btn = gr.Button("プロンプト生成", variant="secondary")
                         with gr.Row():
                             gen_regen_vid_btn = gr.Button("プレビュー動画を生成", variant="primary")
+                            gen_delete_preview_btn = gr.Button("削除", variant="stop")
+                        with gr.Accordion("プレビュー動画履歴", open=False):
+                            with gr.Row():
+                                gen_vid_preview_history = gr.Dropdown(
+                                    label="保存済みプレビュー動画",
+                                    choices=[],
+                                    value=None,
+                                    allow_custom_value=False,
+                                    scale=4,
+                                )
+                                gen_vid_preview_history_refresh_btn = gr.Button("更新", scale=1, size="sm")
+                            with gr.Row():
+                                gen_vid_preview_use_btn = gr.Button("選択動画を本番に設定", variant="secondary")
+                                gen_vid_preview_delete_saved_btn = gr.Button("選択動画を削除", variant="stop")
+                            gen_vid_preview_history_player = gr.Video(label="選択中のプレビュー動画")
+
+                    # ■ 最終版動画タブ
+                    with gr.Tab("最終版動画"):
+                        gen_video_final_preview = gr.Video(label="最終版動画")
+                        with gr.Row():
                             gen_regen_vid_final_btn = gr.Button("最終版動画を生成", variant="secondary")
-                            gen_delete_preview_btn = gr.Button("プレビュー動画を削除", variant="stop")
-                            gen_delete_final_btn = gr.Button("最終版動画を削除", variant="stop")
+                            gen_delete_final_btn = gr.Button("削除", variant="stop")
+                        with gr.Accordion("最終版動画履歴", open=False):
+                            with gr.Row():
+                                gen_vid_final_history = gr.Dropdown(
+                                    label="保存済み最終版動画",
+                                    choices=[],
+                                    value=None,
+                                    allow_custom_value=False,
+                                    scale=4,
+                                )
+                                gen_vid_final_history_refresh_btn = gr.Button("更新", scale=1, size="sm")
+                            with gr.Row():
+                                gen_vid_final_use_btn = gr.Button("選択動画を本番に設定", variant="secondary")
+                                gen_vid_final_delete_saved_btn = gr.Button("選択動画を削除", variant="stop")
+                            gen_vid_final_history_player = gr.Video(label="選択中の最終版動画")
 
     return (
         gen_tab,
@@ -533,6 +640,10 @@ def create_generate_tab():
         gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
         gen_status_disp,
+        gen_vid_preview_history, gen_vid_preview_history_player,
+        gen_vid_preview_use_btn, gen_vid_preview_delete_saved_btn, gen_vid_preview_history_refresh_btn,
+        gen_vid_final_history, gen_vid_final_history_player,
+        gen_vid_final_use_btn, gen_vid_final_delete_saved_btn, gen_vid_final_history_refresh_btn,
     )
 
 
@@ -576,12 +687,17 @@ def create_export_tab():
 def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
     """SceneオブジェクトをGenerateタブの各コンポーネント値に変換する。"""
     scene_dir = proj.scene_dir(scene.scene_id)
-    if _ensure_scene_image_history(scene, scene_dir):
+    changed = _ensure_scene_image_history(scene, scene_dir)
+    changed |= _ensure_scene_video_history(scene, scene_dir, quality="preview")
+    changed |= _ensure_scene_video_history(scene, scene_dir, quality="final")
+    if changed:
         proj.save_scene(scene)
     img_path = scene.image_path(scene_dir)
     vid_path = scene.video_path(scene_dir)
     vid_final_path = scene.video_final_path(scene_dir)
     img_history_update, img_history_preview = _image_history_ui_updates(scene, scene_dir)
+    vid_preview_history_update, vid_preview_history_player = _video_history_ui_updates(scene, scene_dir, quality="preview")
+    vid_final_history_update, vid_final_history_player = _video_history_ui_updates(scene, scene_dir, quality="final")
     return (
         scene.scene_id,
         f"{scene.start_time:.1f}s - {scene.end_time:.1f}s",
@@ -602,6 +718,10 @@ def _scene_to_gen_values(scene: Scene, proj: Project) -> tuple:
         scene.video_instruction,
         scene.status,
         scene.enabled,
+        vid_preview_history_update,
+        vid_preview_history_player,
+        vid_final_history_update,
+        vid_final_history_player,
     )
 
 def _build_scene_samples(scenes: list[Scene]) -> list[list[str]]:
@@ -932,6 +1052,10 @@ def build_app() -> gr.Blocks:
             gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
             gen_status_disp,
+            gen_vid_preview_history, gen_vid_preview_history_player,
+            gen_vid_preview_use_btn, gen_vid_preview_delete_saved_btn, gen_vid_preview_history_refresh_btn,
+            gen_vid_final_history, gen_vid_final_history_player,
+            gen_vid_final_use_btn, gen_vid_final_delete_saved_btn, gen_vid_final_history_refresh_btn,
         ) = create_generate_tab()
 
         (
@@ -1380,15 +1504,21 @@ def build_app() -> gr.Blocks:
             gen_img_history, gen_img_history_preview,
             gen_vid_extra_input,
             gen_status_disp, gen_enabled, current_scene_idx, gen_img_chatbot,
+            gen_vid_preview_history, gen_vid_preview_history_player,
+            gen_vid_final_history, gen_vid_final_history_player,
         ]
 
         def load_gen_scene(idx: int, state: dict) -> tuple:
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
-                return (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", gr.update(choices=[], value=None), None, "", "", True, idx, [])
+                _no_vid_hist = gr.update(choices=[], value=None)
+                return (None, "", "", None, None, None, "", "", "", "", -1, -1, "", "", gr.update(choices=[], value=None), None, "", "", True, idx, [], _no_vid_hist, None, _no_vid_hist, None)
             idx = max(0, min(idx, len(proj.scenes) - 1))
             scene = proj.scenes[idx]
-            return _scene_to_gen_values(scene, proj) + (idx, [])
+            base = _scene_to_gen_values(scene, proj)
+            # base[0:19] = scene値、base[19:] = 動画履歴4値
+            # gen_scene_outputs[19]=current_scene_idx, [20]=gen_img_chatbot が先に来る
+            return base[:19] + (idx, []) + base[19:]
 
         gen_tab.select(
             fn=load_gen_scene,
@@ -1697,7 +1827,9 @@ def build_app() -> gr.Blocks:
             img = updated.image_path(scene_dir)
             preview_vid = updated.video_preview_path(scene_dir)
             final_vid = updated.video_final_path(scene_dir)
-            history_update, history_preview = _image_history_ui_updates(updated, scene_dir, updated.active_image_version)
+            img_hist_update, img_hist_preview = _image_history_ui_updates(updated, scene_dir, updated.active_image_version)
+            vid_preview_hist_update, vid_preview_hist_player = _video_history_ui_updates(updated, scene_dir, "preview", updated.active_video_preview_version)
+            vid_final_hist_update, vid_final_hist_player = _video_history_ui_updates(updated, scene_dir, "final", updated.active_video_final_version)
             samples = _build_scene_samples(proj.scenes)
             status_msg = updated.status
             if video_quality == "final":
@@ -1709,8 +1841,12 @@ def build_app() -> gr.Blocks:
                 str(final_vid) if final_vid.exists() else None,
                 status_msg,
                 gr.Dataset(samples=samples),
-                history_update,
-                history_preview,
+                img_hist_update,
+                img_hist_preview,
+                vid_preview_hist_update,
+                vid_preview_hist_player,
+                vid_final_hist_update,
+                vid_final_hist_player,
             )
 
         _regen_inputs = [
@@ -1719,20 +1855,26 @@ def build_app() -> gr.Blocks:
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
             gen_img_seed, gen_vid_seed, gen_img_wf, gen_vid_wf,
         ]
+        _regen_outputs = [
+            gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns,
+            gen_img_history, gen_img_history_preview,
+            gen_vid_preview_history, gen_vid_preview_history_player,
+            gen_vid_final_history, gen_vid_final_history_player,
+        ]
         gen_regen_img_btn.click(
             fn=lambda *a: on_regen(*a, target="image"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_regen_outputs,
         )
         gen_regen_vid_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="preview"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_regen_outputs,
         )
         gen_regen_vid_final_btn.click(
             fn=lambda *a: on_regen(*a, target="video", video_quality="final"),
             inputs=_regen_inputs,
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_regen_outputs,
         )
 
         def _refresh_scene_status_from_files(scene: Scene, scene_dir: Path) -> None:
@@ -1768,10 +1910,16 @@ def build_app() -> gr.Blocks:
                 deleted_msg = f"{target_path.name} は存在しません"
             if media_type == "image":
                 scene.active_image_version = ""
+            elif media_type == "preview":
+                scene.active_video_preview_version = ""
+            elif media_type == "final":
+                scene.active_video_final_version = ""
 
             _refresh_scene_status_from_files(scene, scene_dir)
             proj.save_scene(scene)
-            history_update, history_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+            img_hist_update, img_hist_preview = _image_history_ui_updates(scene, scene_dir, scene.active_image_version)
+            vid_preview_hist_update, vid_preview_hist_player = _video_history_ui_updates(scene, scene_dir, "preview", scene.active_video_preview_version)
+            vid_final_hist_update, vid_final_hist_player = _video_history_ui_updates(scene, scene_dir, "final", scene.active_video_final_version)
             samples = _build_scene_samples(proj.scenes)
             return (
                 str(scene.image_path(scene_dir)) if scene.image_path(scene_dir).exists() else None,
@@ -1779,24 +1927,34 @@ def build_app() -> gr.Blocks:
                 str(scene.video_final_path(scene_dir)) if scene.video_final_path(scene_dir).exists() else None,
                 deleted_msg,
                 gr.Dataset(samples=samples),
-                history_update,
-                history_preview,
+                img_hist_update,
+                img_hist_preview,
+                vid_preview_hist_update,
+                vid_preview_hist_player,
+                vid_final_hist_update,
+                vid_final_hist_player,
             )
 
+        _delete_media_outputs = [
+            gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns,
+            gen_img_history, gen_img_history_preview,
+            gen_vid_preview_history, gen_vid_preview_history_player,
+            gen_vid_final_history, gen_vid_final_history_player,
+        ]
         gen_delete_image_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "image"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_delete_media_outputs,
         )
         gen_delete_preview_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "preview"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_delete_media_outputs,
         )
         gen_delete_final_btn.click(
             fn=lambda idx, st: on_delete_media(idx, st, "final"),
             inputs=[current_scene_idx, project_state],
-            outputs=[gen_image_preview, gen_video_preview, gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
+            outputs=_delete_media_outputs,
         )
 
         def on_saved_image_select(idx, state, selected_name):
@@ -1900,6 +2058,137 @@ def build_app() -> gr.Blocks:
             outputs=[gen_image_preview, gen_status_disp, gen_scene_btns, gen_img_history, gen_img_history_preview],
         )
 
+        # ============================================================
+        # イベントハンドラ: 生成・編集タブ - 動画履歴操作
+        # ============================================================
+
+        def on_saved_video_select(idx, state, selected_name):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_video_version_path(scene, scene_dir, selected_name)
+            return str(selected_path) if selected_path else None
+
+        def on_saved_video_refresh(idx, state, quality):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            if _ensure_scene_video_history(scene, scene_dir, quality):
+                proj.save_scene(scene)
+            active = scene.active_video_final_version if quality == "final" else scene.active_video_preview_version
+            return _video_history_ui_updates(scene, scene_dir, quality, active)
+
+        def on_saved_video_use(idx, state, selected_name, quality):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_video_version_path(scene, scene_dir, selected_name)
+            if selected_path is None:
+                return gr.update(), "選択中の動画が見つかりません", gr.update(), gr.update(), gr.update()
+            dest = scene.video_final_path(scene_dir) if quality == "final" else scene.video_preview_path(scene_dir)
+            shutil.copy2(selected_path, dest)
+            if quality == "final":
+                scene.active_video_final_version = selected_path.name
+            else:
+                scene.active_video_preview_version = selected_path.name
+            _refresh_scene_status_from_files(scene, scene_dir)
+            proj.save_scene(scene)
+            samples = _build_scene_samples(proj.scenes)
+            active = scene.active_video_final_version if quality == "final" else scene.active_video_preview_version
+            hist_update, hist_player = _video_history_ui_updates(scene, scene_dir, quality, active)
+            vid_path = dest
+            return (
+                str(vid_path) if vid_path.exists() else None,
+                f"{selected_path.name} を本番動画に設定しました",
+                gr.Dataset(samples=samples),
+                hist_update,
+                hist_player,
+            )
+
+        def on_saved_video_delete(idx, state, selected_name, quality):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return None, "プロジェクトが読み込まれていません", gr.update(), gr.update(choices=[], value=None), None
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            selected_path = _selected_video_version_path(scene, scene_dir, selected_name)
+            if selected_path is None:
+                return gr.update(), "削除対象の動画が見つかりません", gr.update(), gr.update(), gr.update()
+            active_attr = "active_video_final_version" if quality == "final" else "active_video_preview_version"
+            dest = scene.video_final_path(scene_dir) if quality == "final" else scene.video_preview_path(scene_dir)
+            was_active = selected_path.name == getattr(scene, active_attr)
+            selected_path.unlink()
+            remaining = _list_scene_video_versions(scene, scene_dir, quality)
+            if was_active:
+                if remaining:
+                    setattr(scene, active_attr, remaining[0].name)
+                    shutil.copy2(remaining[0], dest)
+                else:
+                    setattr(scene, active_attr, "")
+                    if dest.exists():
+                        dest.unlink()
+            _refresh_scene_status_from_files(scene, scene_dir)
+            proj.save_scene(scene)
+            samples = _build_scene_samples(proj.scenes)
+            active = getattr(scene, active_attr)
+            hist_update, hist_player = _video_history_ui_updates(scene, scene_dir, quality, active)
+            return (
+                str(dest) if dest.exists() else None,
+                f"{selected_path.name} を削除しました",
+                gr.Dataset(samples=samples),
+                hist_update,
+                hist_player,
+            )
+
+        # プレビュー動画履歴
+        gen_vid_preview_history.change(
+            fn=on_saved_video_select,
+            inputs=[current_scene_idx, project_state, gen_vid_preview_history],
+            outputs=[gen_vid_preview_history_player],
+        )
+        gen_vid_preview_history_refresh_btn.click(
+            fn=lambda idx, st: on_saved_video_refresh(idx, st, "preview"),
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_vid_preview_history, gen_vid_preview_history_player],
+        )
+        gen_vid_preview_use_btn.click(
+            fn=lambda idx, st, name: on_saved_video_use(idx, st, name, "preview"),
+            inputs=[current_scene_idx, project_state, gen_vid_preview_history],
+            outputs=[gen_video_preview, gen_status_disp, gen_scene_btns, gen_vid_preview_history, gen_vid_preview_history_player],
+        )
+        gen_vid_preview_delete_saved_btn.click(
+            fn=lambda idx, st, name: on_saved_video_delete(idx, st, name, "preview"),
+            inputs=[current_scene_idx, project_state, gen_vid_preview_history],
+            outputs=[gen_video_preview, gen_status_disp, gen_scene_btns, gen_vid_preview_history, gen_vid_preview_history_player],
+        )
+
+        # 最終版動画履歴
+        gen_vid_final_history.change(
+            fn=on_saved_video_select,
+            inputs=[current_scene_idx, project_state, gen_vid_final_history],
+            outputs=[gen_vid_final_history_player],
+        )
+        gen_vid_final_history_refresh_btn.click(
+            fn=lambda idx, st: on_saved_video_refresh(idx, st, "final"),
+            inputs=[current_scene_idx, project_state],
+            outputs=[gen_vid_final_history, gen_vid_final_history_player],
+        )
+        gen_vid_final_use_btn.click(
+            fn=lambda idx, st, name: on_saved_video_use(idx, st, name, "final"),
+            inputs=[current_scene_idx, project_state, gen_vid_final_history],
+            outputs=[gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_vid_final_history, gen_vid_final_history_player],
+        )
+        gen_vid_final_delete_saved_btn.click(
+            fn=lambda idx, st, name: on_saved_video_delete(idx, st, name, "final"),
+            inputs=[current_scene_idx, project_state, gen_vid_final_history],
+            outputs=[gen_video_final_preview, gen_status_disp, gen_scene_btns, gen_vid_final_history, gen_vid_final_history_player],
+        )
 
         # ============================================================
         # イベントハンドラ: 生成・編集タブ - シーン管理（移動・挿入・削除）

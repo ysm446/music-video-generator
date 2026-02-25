@@ -210,6 +210,12 @@ class BatchGenerator:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         return f"image_{stamp}.png"
 
+    @staticmethod
+    def _next_video_version_name(quality: str = "preview") -> str:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        suffix = "_final" if quality == "final" else "_preview"
+        return f"video{suffix}_{stamp}.mp4"
+
     def _generate_image(self, scene: Scene) -> None:
         proj = self.project
         scene_dir = proj.scene_dir(scene.scene_id)
@@ -246,6 +252,11 @@ class BatchGenerator:
             width = proj.video_resolution["width"]
             height = proj.video_resolution["height"]
 
+        versions_dir = scene.video_versions_dir(scene_dir)
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        version_name = self._next_video_version_name(quality)
+        version_path = scene.video_version_path(scene_dir, version_name)
+
         # シーン個別ワークフローが指定されていればそちらを優先
         workflow = scene.video_workflow or proj.video_workflow
         self.comfyui.generate_video(
@@ -258,5 +269,10 @@ class BatchGenerator:
             height=height,
             fps=proj.video_fps,
             frame_count=proj.video_frame_count,
-            dest_path=dest,
+            dest_path=version_path,
         )
+        shutil.copy2(version_path, dest)
+        if quality == "final":
+            scene.active_video_final_version = version_name
+        else:
+            scene.active_video_preview_version = version_name
