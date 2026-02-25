@@ -694,15 +694,11 @@ def create_export_tab():
         )
         export_refresh_btn = gr.Button("サムネイル更新")
         with gr.Row():
-            export_quality = gr.Radio(
-                label="書き出し品質",
-                choices=["プレビュー (640×360)", "最終版 (1280×720)"],
-                value="プレビュー (640×360)",
-            )
-        with gr.Row():
-            export_with_music = gr.Checkbox(label="音楽を合成する", value=True)
-            export_btn = gr.Button("最終動画を書き出し（ffmpeg）", variant="primary")
+            export_btn_preview = gr.Button("プレビュー版を書き出し", variant="primary")
+            export_btn_final = gr.Button("最終版を書き出し", variant="secondary")
         with gr.Accordion("書き出しオプション", open=False):
+            with gr.Row():
+                export_with_music = gr.Checkbox(label="音楽を合成する", value=True)
             with gr.Row():
                 export_loop_music = gr.Checkbox(label="曲を繰り返す", value=False)
             with gr.Row():
@@ -719,11 +715,11 @@ def create_export_tab():
 
     return (
         export_gallery, export_refresh_btn,
-        export_quality, export_with_music, export_loop_music,
+        export_with_music, export_loop_music,
         export_audio_fade_in, export_audio_fade_in_sec,
         export_audio_fade_out, export_audio_fade_out_sec,
         export_video_fade_out_black, export_video_fade_out_sec,
-        export_btn, export_status, export_video,
+        export_btn_preview, export_btn_final, export_status, export_video,
     )
 
 
@@ -1235,7 +1231,6 @@ def _settings_to_export_values(s: dict) -> tuple:
     """settings 辞書を書き出しタブの export_* コンポーネント値へ変換する。"""
     d = settings_manager.DEFAULT_SETTINGS
     return (
-        s.get("export_quality", d["export_quality"]),
         bool(s.get("export_with_music", d["export_with_music"])),
         bool(s.get("export_loop_music", d["export_loop_music"])),
         bool(s.get("export_audio_fade_in", d["export_audio_fade_in"])),
@@ -1306,11 +1301,11 @@ def build_app() -> gr.Blocks:
 
         (
             export_gallery, export_refresh_btn,
-            export_quality, export_with_music, export_loop_music,
+            export_with_music, export_loop_music,
             export_audio_fade_in, export_audio_fade_in_sec,
             export_audio_fade_out, export_audio_fade_out_sec,
             export_video_fade_out_black, export_video_fade_out_sec,
-            export_btn, export_status, export_video,
+            export_btn_preview, export_btn_final, export_status, export_video,
         ) = create_export_tab()
 
         (
@@ -1376,7 +1371,7 @@ def build_app() -> gr.Blocks:
             cfg_img_wf, cfg_vid_wf, model_dropdown,
         ]
         _export_outputs = [
-            export_quality, export_with_music, export_loop_music,
+            export_with_music, export_loop_music,
             export_audio_fade_in, export_audio_fade_in_sec,
             export_audio_fade_out, export_audio_fade_out_sec,
             export_video_fade_out_black, export_video_fade_out_sec,
@@ -1401,7 +1396,7 @@ def build_app() -> gr.Blocks:
         ):
             """新規プロジェクトを作成する。"""
             _no_cfg = (gr.update(),) * 12
-            _no_export = (gr.update(),) * 9
+            _no_export = (gr.update(),) * 8
             if not name:
                 return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg, gr.update(), gr.update(), *_no_export, gr.update()
             if not music_path:
@@ -1449,7 +1444,6 @@ def build_app() -> gr.Blocks:
                 "model": model,
                 "batch_image_prompt_common": "",
                 "batch_video_prompt_common_instruction": "",
-                "export_quality": settings_manager.DEFAULT_SETTINGS["export_quality"],
                 "export_with_music": settings_manager.DEFAULT_SETTINGS["export_with_music"],
                 "export_loop_music": settings_manager.DEFAULT_SETTINGS["export_loop_music"],
                 "export_audio_fade_in": settings_manager.DEFAULT_SETTINGS["export_audio_fade_in"],
@@ -1500,7 +1494,7 @@ def build_app() -> gr.Blocks:
         def on_load_project(name):
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
             _no_cfg = (gr.update(),) * 12
-            _no_export = (gr.update(),) * 9
+            _no_export = (gr.update(),) * 8
             if not name:
                 return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update(), gr.update(), *_no_export, gr.update()
             try:
@@ -3027,7 +3021,6 @@ def build_app() -> gr.Blocks:
 
         def on_export(
             state,
-            quality_label,
             with_music,
             loop_music,
             audio_fade_in,
@@ -3036,14 +3029,13 @@ def build_app() -> gr.Blocks:
             audio_fade_out_sec,
             video_fade_out_black,
             video_fade_out_sec,
+            output_kind: str = "preview",
         ):
             proj = _project_from_state(state)
             if proj is None:
                 return "プロジェクトが読み込まれていません", None
             try:
-                video_quality = "final" if "最終版" in quality_label else "preview"
                 settings_manager.save(proj.project_dir, {
-                    "export_quality": quality_label,
                     "export_with_music": bool(with_music),
                     "export_loop_music": bool(loop_music),
                     "export_audio_fade_in": bool(audio_fade_in),
@@ -3054,10 +3046,12 @@ def build_app() -> gr.Blocks:
                     "export_video_fade_out_sec": float(video_fade_out_sec or 0),
                 })
                 exporter = VideoExporter(proj)
+                is_final = output_kind == "final"
                 out_path = exporter.export(
+                    output_filename="final.mp4" if is_final else "preview.mp4",
                     with_music=with_music,
                     loop_music=bool(loop_music),
-                    video_quality=video_quality,
+                    video_quality="final" if is_final else "preview",
                     audio_fade_in=bool(audio_fade_in),
                     audio_fade_in_seconds=float(audio_fade_in_sec or 0),
                     audio_fade_out=bool(audio_fade_out),
@@ -3065,17 +3059,28 @@ def build_app() -> gr.Blocks:
                     video_fade_out_black=bool(video_fade_out_black),
                     video_fade_out_seconds=float(video_fade_out_sec or 0),
                 )
-                return f"書き出し完了: {out_path}", str(out_path)
+                label = "最終版" if is_final else "プレビュー版"
+                return f"{label}書き出し完了: {out_path.name}", str(out_path)
             except Exception as e:
                 return f"書き出しエラー: {e}", None
 
-        export_btn.click(
-            fn=on_export,
+        _export_inputs = [
+            project_state, export_with_music, export_loop_music,
+            export_audio_fade_in, export_audio_fade_in_sec,
+            export_audio_fade_out, export_audio_fade_out_sec,
+            export_video_fade_out_black, export_video_fade_out_sec,
+        ]
+        export_btn_preview.click(
+            fn=lambda *a: on_export(*a, output_kind="preview"),
             inputs=[
-                project_state, export_quality, export_with_music, export_loop_music,
-                export_audio_fade_in, export_audio_fade_in_sec,
-                export_audio_fade_out, export_audio_fade_out_sec,
-                export_video_fade_out_black, export_video_fade_out_sec,
+                *_export_inputs,
+            ],
+            outputs=[export_status, export_video],
+        )
+        export_btn_final.click(
+            fn=lambda *a: on_export(*a, output_kind="final"),
+            inputs=[
+                *_export_inputs,
             ],
             outputs=[export_status, export_video],
         )
