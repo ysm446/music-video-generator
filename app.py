@@ -437,6 +437,14 @@ def create_plan_tab():
                 with gr.Row():
                     plan_img_common_save_btn = gr.Button("共通文を保存", variant="secondary")
                     plan_img_common_status = gr.Textbox(label="", interactive=False, scale=3)
+                plan_vid_common_instruction = gr.Textbox(
+                    label="動画プロンプト共通追加指示（任意）",
+                    lines=2,
+                    placeholder="例: subtle camera movement, realistic physics, no abrupt motion",
+                )
+                with gr.Row():
+                    plan_vid_common_save_btn = gr.Button("動画共通指示を保存", variant="secondary")
+                    plan_vid_common_status = gr.Textbox(label="", interactive=False, scale=3)
                 plan_bulk_btn = gr.Button("全シーンを一括提案（Qwen）", variant="secondary")
                 plan_bulk_status = gr.Textbox(label="一括提案ステータス", interactive=False, show_label=True)
 
@@ -459,7 +467,9 @@ def create_plan_tab():
 
     return (
         plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
-        plan_concept_input, plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+        plan_concept_input,
+        plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+        plan_vid_common_instruction, plan_vid_common_save_btn, plan_vid_common_status,
         plan_bulk_btn, plan_bulk_status,
         plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
     )
@@ -553,6 +563,7 @@ def create_generate_tab():
                         with gr.Row():
                             gen_regen_img_btn = gr.Button("画像の生成", variant="primary")
                             gen_delete_image_btn = gr.Button("画像を削除", variant="stop")
+                            gen_reset_scene_from_image_btn = gr.Button("このシーンをリセット", variant="stop")
                         with gr.Accordion("画像履歴", open=False):
                             with gr.Row():
                                 gen_img_history = gr.Dropdown(
@@ -596,6 +607,7 @@ def create_generate_tab():
                         with gr.Row():
                             gen_regen_vid_btn = gr.Button("プレビュー動画を生成", variant="primary")
                             gen_delete_preview_btn = gr.Button("削除", variant="stop")
+                            gen_reset_scene_from_preview_btn = gr.Button("このシーンをリセット", variant="stop")
                         with gr.Accordion("プレビュー動画履歴", open=False):
                             with gr.Row():
                                 gen_vid_preview_history = gr.Dropdown(
@@ -617,6 +629,7 @@ def create_generate_tab():
                         with gr.Row():
                             gen_regen_vid_final_btn = gr.Button("最終版動画を生成", variant="secondary")
                             gen_delete_final_btn = gr.Button("削除", variant="stop")
+                            gen_reset_scene_from_final_btn = gr.Button("このシーンをリセット", variant="stop")
                         with gr.Accordion("最終版動画履歴", open=False):
                             with gr.Row():
                                 gen_vid_final_history = gr.Dropdown(
@@ -649,6 +662,7 @@ def create_generate_tab():
         gen_enabled,
         gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
         gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
+        gen_reset_scene_from_image_btn, gen_reset_scene_from_preview_btn, gen_reset_scene_from_final_btn,
         gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
         gen_status_disp,
         gen_vid_preview_history, gen_vid_preview_history_player,
@@ -919,9 +933,20 @@ def _extract_video_prompt_update(raw_text: str) -> tuple[str, str] | None:
     return prompt, neg
 
 
-def _generate_video_prompt_for_scene(scene: Scene, proj: Optional[Project]) -> tuple[str, str]:
+def _generate_video_prompt_for_scene(
+    scene: Scene,
+    proj: Optional[Project],
+    common_instruction: str = "",
+) -> tuple[str, str]:
     """Generate video prompt/negative using available scene fields."""
-    instruction_text = "追加指示なし。画像やプロンプトから自然で一貫性のある動画プロンプトを提案してください。"
+    instruction_parts: list[str] = []
+    if (common_instruction or "").strip():
+        instruction_parts.append(f"共通追加指示: {(common_instruction or '').strip()}")
+    if (scene.video_instruction or "").strip():
+        instruction_parts.append(f"シーン追加指示: {(scene.video_instruction or '').strip()}")
+    if not instruction_parts:
+        instruction_parts.append("追加指示なし。画像やプロンプトから自然で一貫性のある動画プロンプトを提案してください。")
+    instruction_text = "\n".join(instruction_parts)
     text_content = (
         "これはWAN2.2 img2video向け動画プロンプトの生成タスクです。\n\n"
         f"【シーン説明】\n{(scene.plot or '(なし)').strip()}\n\n"
@@ -1117,7 +1142,9 @@ def build_app() -> gr.Blocks:
 
         (
             plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
-            plan_concept_input, plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+            plan_concept_input,
+            plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+            plan_vid_common_instruction, plan_vid_common_save_btn, plan_vid_common_status,
             plan_bulk_btn, plan_bulk_status,
             plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
         ) = create_plan_tab()
@@ -1139,6 +1166,7 @@ def build_app() -> gr.Blocks:
             gen_enabled,
             gen_move_up_btn, gen_move_down_btn, gen_insert_btn, gen_delete_btn,
             gen_delete_image_btn, gen_delete_preview_btn, gen_delete_final_btn,
+            gen_reset_scene_from_image_btn, gen_reset_scene_from_preview_btn, gen_reset_scene_from_final_btn,
             gen_regen_img_btn, gen_regen_vid_btn, gen_regen_vid_final_btn, gen_save_btn,
             gen_status_disp,
             gen_vid_preview_history, gen_vid_preview_history_player,
@@ -1235,14 +1263,14 @@ def build_app() -> gr.Blocks:
             """新規プロジェクトを作成する。"""
             _no_cfg = (gr.update(),) * 12
             if not name:
-                return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg
+                return gr.update(), gr.update(), "プロジェクト名を入力してください", None, 0, *_no_cfg, gr.update(), gr.update()
             if not music_path:
-                return gr.update(), gr.update(), "音楽ファイルをアップロードしてください", None, 0, *_no_cfg
+                return gr.update(), gr.update(), "音楽ファイルをアップロードしてください", None, 0, *_no_cfg, gr.update(), gr.update()
 
             try:
                 duration = _get_audio_duration(music_path)
             except Exception as e:
-                return gr.update(), gr.update(), f"音楽ファイルエラー: {e}", None, 0, *_no_cfg
+                return gr.update(), gr.update(), f"音楽ファイルエラー: {e}", None, 0, *_no_cfg, gr.update(), gr.update()
 
             BASE_DIR.mkdir(parents=True, exist_ok=True)
             proj = Project(
@@ -1280,6 +1308,7 @@ def build_app() -> gr.Blocks:
                 "scene_duration": int(scene_dur),
                 "model": model,
                 "batch_image_prompt_common": "",
+                "batch_video_prompt_common_instruction": "",
             })
             settings_manager.save_last_project(name)
 
@@ -1287,7 +1316,16 @@ def build_app() -> gr.Blocks:
             samples = _build_scene_samples(proj.scenes)
             msg = f"プロジェクト '{name}' を作成しました（{len(proj.scenes)}シーン, {duration:.1f}秒）"
             s = settings_manager.load(proj.project_dir)
-            return _build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0, *_settings_to_cfg_values(s), s.get("batch_image_prompt_common", "")
+            return (
+                _build_plan_df(proj.scenes),
+                gr.Dataset(samples=samples),
+                msg,
+                state,
+                0,
+                *_settings_to_cfg_values(s),
+                s.get("batch_image_prompt_common", ""),
+                s.get("batch_video_prompt_common_instruction", ""),
+            )
 
         new_create_btn.click(
             fn=on_create_project,
@@ -1299,7 +1337,7 @@ def build_app() -> gr.Blocks:
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
             outputs=[plan_scene_df, gen_scene_btns, new_status, project_state, current_scene_idx,
-                     *_cfg_outputs, plan_img_common_prompt],
+                     *_cfg_outputs, plan_img_common_prompt, plan_vid_common_instruction],
         )
 
         def on_load_refresh():
@@ -1309,13 +1347,13 @@ def build_app() -> gr.Blocks:
 
         def on_load_project(name):
             """既存プロジェクトを読み込む。settings.json から UI パラメータを復元する。"""
-            _no_cfg = (gr.update(),) * 10
+            _no_cfg = (gr.update(),) * 12
             if not name:
-                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update()
+                return gr.update(), gr.update(), "プロジェクトを選択してください", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update(), gr.update()
             try:
                 proj = Project.load(BASE_DIR / name)
             except Exception as e:
-                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update(), gr.update()
+                return gr.update(), gr.update(), f"読込エラー: {e}", None, 0, *_no_cfg, None, gr.update(), gr.update(), gr.update(), gr.update()
 
             # settings.json 読み込み
             s = settings_manager.load(proj.project_dir)
@@ -1328,14 +1366,15 @@ def build_app() -> gr.Blocks:
             music_val = str(music_path) if music_path else None
             return (_build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0,
                     *_settings_to_cfg_values(s), music_val, name,
-                    proj.concept, s.get("batch_image_prompt_common", ""))
+                    proj.concept, s.get("batch_image_prompt_common", ""),
+                    s.get("batch_video_prompt_common_instruction", ""))
 
         load_btn.click(
             fn=on_load_project,
             inputs=[load_dropdown],
             outputs=[plan_scene_df, gen_scene_btns, load_status, project_state, current_scene_idx,
                      *_cfg_outputs, new_music, new_name,
-                     plan_concept_input, plan_img_common_prompt],
+                     plan_concept_input, plan_img_common_prompt, plan_vid_common_instruction],
         )
 
         def on_save_config(
@@ -1472,6 +1511,24 @@ def build_app() -> gr.Blocks:
             fn=on_save_common_image_prompt,
             inputs=[project_state, plan_img_common_prompt],
             outputs=[plan_img_common_status],
+        )
+
+        def on_save_common_video_instruction(state: dict, common_instruction: str):
+            proj = _project_from_state(state)
+            if proj is None:
+                return "プロジェクトが読み込まれていません"
+            try:
+                settings_manager.save(proj.project_dir, {
+                    "batch_video_prompt_common_instruction": (common_instruction or "").strip(),
+                })
+                return "共通動画追加指示を保存しました"
+            except Exception as e:
+                return f"保存エラー: {e}"
+
+        plan_vid_common_save_btn.click(
+            fn=on_save_common_video_instruction,
+            inputs=[project_state, plan_vid_common_instruction],
+            outputs=[plan_vid_common_status],
         )
 
 
@@ -2057,6 +2114,58 @@ def build_app() -> gr.Blocks:
             outputs=_delete_media_outputs,
         )
 
+        def on_scene_reset(idx, state):
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                return tuple([gr.update()] * len(gen_scene_outputs)) + (gr.update(),)
+
+            idx = max(0, min(idx, len(proj.scenes) - 1))
+            scene = proj.scenes[idx]
+            scene_dir = proj.scene_dir(scene.scene_id)
+            if scene_dir.exists():
+                shutil.rmtree(scene_dir)
+
+            # Scene identity/timing/order は維持し、編集・生成データを初期化
+            scene.enabled = True
+            scene.section = ""
+            scene.plot = ""
+            scene.image_prompt = ""
+            scene.image_negative = ""
+            scene.image_seed = -1
+            scene.image_workflow = None
+            scene.active_image_version = ""
+            scene.active_video_preview_version = ""
+            scene.active_video_final_version = ""
+            scene.video_prompt = ""
+            scene.video_negative = ""
+            scene.video_seed = -1
+            scene.video_workflow = None
+            scene.video_instruction = ""
+            scene.status = "empty"
+            scene.notes = ""
+            proj.save_scene(scene)
+
+            refreshed = list(load_gen_scene(idx, state))
+            refreshed[17] = "シーンを初期化しました（関連ファイルも削除）"
+            return tuple(refreshed) + (gr.Dataset(samples=_build_scene_samples(proj.scenes)),)
+
+        _scene_reset_outputs = gen_scene_outputs + [gen_scene_btns]
+        gen_reset_scene_from_image_btn.click(
+            fn=on_scene_reset,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_reset_outputs,
+        )
+        gen_reset_scene_from_preview_btn.click(
+            fn=on_scene_reset,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_reset_outputs,
+        )
+        gen_reset_scene_from_final_btn.click(
+            fn=on_scene_reset,
+            inputs=[current_scene_idx, project_state],
+            outputs=_scene_reset_outputs,
+        )
+
         def on_saved_image_select(idx, state, selected_name):
             proj = _project_from_state(state)
             if proj is None or not proj.scenes:
@@ -2450,7 +2559,9 @@ def build_app() -> gr.Blocks:
             if is_prompt_mode:
                 def _run_prompt_batch():
                     total = len(proj.scenes)
-                    common_prompt = settings_manager.load(proj.project_dir).get("batch_image_prompt_common", "")
+                    _s = settings_manager.load(proj.project_dir)
+                    common_prompt = _s.get("batch_image_prompt_common", "")
+                    common_video_instruction = _s.get("batch_video_prompt_common_instruction", "")
                     for scene in proj.scenes:
                         if _batch_stop_requested:
                             break
@@ -2482,7 +2593,11 @@ def build_app() -> gr.Blocks:
                                 continue
                             try:
                                 on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 動画プロンプト生成中...")
-                                new_prompt, new_neg = _generate_video_prompt_for_scene(scene, proj)
+                                new_prompt, new_neg = _generate_video_prompt_for_scene(
+                                    scene,
+                                    proj,
+                                    common_instruction=common_video_instruction,
+                                )
                                 scene.video_prompt = new_prompt
                                 if not (scene.video_negative or "").strip() and (new_neg or "").strip():
                                     scene.video_negative = new_neg
