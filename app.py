@@ -429,6 +429,14 @@ def create_plan_tab():
                     plan_chat_send = gr.Button("送信", variant="primary", scale=3)
                     plan_chat_clear = gr.Button("🗑 クリア", scale=1)
                 plan_concept_input = gr.Textbox(label="全体コンセプト（保存用）", lines=2)
+                plan_img_common_prompt = gr.Textbox(
+                    label="画像プロンプト共通文（任意）",
+                    lines=2,
+                    placeholder="例: hyper-realistic miniature diorama, tilt-shift lens effect, depth of field",
+                )
+                with gr.Row():
+                    plan_img_common_save_btn = gr.Button("共通文を保存", variant="secondary")
+                    plan_img_common_status = gr.Textbox(label="", interactive=False, scale=3)
                 plan_bulk_btn = gr.Button("全シーンを一括提案（Qwen）", variant="secondary")
                 plan_bulk_status = gr.Textbox(label="一括提案ステータス", interactive=False, show_label=True)
 
@@ -451,7 +459,8 @@ def create_plan_tab():
 
     return (
         plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
-        plan_concept_input, plan_bulk_btn, plan_bulk_status,
+        plan_concept_input, plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+        plan_bulk_btn, plan_bulk_status,
         plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
     )
 
@@ -480,6 +489,7 @@ def create_generate_tab():
 
                 with gr.Accordion("一括生成", open=False):
                     gen_batch_img_btn = gr.Button("画像", variant="primary")
+                    gen_batch_img_prompt_btn = gr.Button("画像プロンプト")
                     gen_batch_preview_btn = gr.Button("プレビュー動画")
                     gen_batch_final_btn = gr.Button("最終版動画", variant="secondary")
                     gen_stop_btn = gr.Button("停止")
@@ -624,7 +634,7 @@ def create_generate_tab():
     return (
         gen_tab,
         gen_scene_btns, gen_prev_btn, gen_next_btn,
-        gen_batch_img_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+        gen_batch_img_btn, gen_batch_img_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
         gen_scene_id_disp, gen_time_disp, gen_plot,
         gen_image_preview, gen_video_preview, gen_video_final_preview,
         gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -858,6 +868,39 @@ def _llm_improve(scene_data, concept, refs, proj) -> dict:
     )
 
 
+def _extract_image_prompt_text(raw_text: str) -> str:
+    """Extract image prompt text from model output."""
+    stripped = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+    block = re.search(r"\[IMAGE_PROMPT\](.*?)\[/IMAGE_PROMPT\]", stripped, re.DOTALL | re.IGNORECASE)
+    if block:
+        text = block.group(1).strip()
+        if text:
+            return text
+    return stripped
+
+
+def _generate_image_prompt_from_plot(plot: str, common_prompt: str, proj: Optional[Project]) -> str:
+    """Generate image prompt text from scene plot with optional common prompt."""
+    common = (common_prompt or "").strip()
+    common_line = common if common else "(none)"
+    user_text = (
+        "Create one concise English image-generation positive prompt from the scene description.\n"
+        "Do not output explanation.\n"
+        "If common prompt exists, include it naturally.\n\n"
+        f"Scene description:\n{plot or '(empty)'}\n\n"
+        f"Common prompt:\n{common_line}\n\n"
+        "Output format:\n"
+        "[IMAGE_PROMPT]\n"
+        "<one-line prompt>\n"
+        "[/IMAGE_PROMPT]"
+    )
+    full = "".join(_llm_chat_stream([{"role": "user", "content": user_text}], proj))
+    prompt = _extract_image_prompt_text(full)
+    if not prompt:
+        prompt = (common_line if common else "") or "cinematic still"
+    return prompt
+
+
 def _build_plan_chat_system(proj: Optional[Project]) -> str:
     """計画タブのLLMチャット用システムプロンプトを構築する。
     プロジェクトのコンセプトと既存シーン計画をコンテキストとして含める。
@@ -1029,14 +1072,15 @@ def build_app() -> gr.Blocks:
 
         (
             plan_chatbot, plan_chat_input, plan_chat_send, plan_chat_clear,
-            plan_concept_input, plan_bulk_btn, plan_bulk_status,
+            plan_concept_input, plan_img_common_prompt, plan_img_common_save_btn, plan_img_common_status,
+            plan_bulk_btn, plan_bulk_status,
             plan_scene_df, plan_refresh_btn, plan_save_all_btn, plan_save_all_status,
         ) = create_plan_tab()
 
         (
             gen_tab,
             gen_scene_btns, gen_prev_btn, gen_next_btn,
-            gen_batch_img_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
+            gen_batch_img_btn, gen_batch_img_prompt_btn, gen_batch_preview_btn, gen_batch_final_btn, gen_stop_btn, gen_progress,
             gen_scene_id_disp, gen_time_disp, gen_plot,
             gen_image_preview, gen_video_preview, gen_video_final_preview,
             gen_img_prompt, gen_img_neg, gen_vid_prompt, gen_vid_neg,
@@ -1190,6 +1234,7 @@ def build_app() -> gr.Blocks:
                 "video_frame_count": int(vid_frame_count),
                 "scene_duration": int(scene_dur),
                 "model": model,
+                "batch_image_prompt_common": "",
             })
             settings_manager.save_last_project(name)
 
@@ -1197,7 +1242,7 @@ def build_app() -> gr.Blocks:
             samples = _build_scene_samples(proj.scenes)
             msg = f"プロジェクト '{name}' を作成しました（{len(proj.scenes)}シーン, {duration:.1f}秒）"
             s = settings_manager.load(proj.project_dir)
-            return _build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0, *_settings_to_cfg_values(s)
+            return _build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0, *_settings_to_cfg_values(s), s.get("batch_image_prompt_common", "")
 
         new_create_btn.click(
             fn=on_create_project,
@@ -1209,7 +1254,7 @@ def build_app() -> gr.Blocks:
                 cfg_img_wf, cfg_vid_wf, model_dropdown,
             ],
             outputs=[plan_scene_df, gen_scene_btns, new_status, project_state, current_scene_idx,
-                     *_cfg_outputs],
+                     *_cfg_outputs, plan_img_common_prompt],
         )
 
         def on_load_refresh():
@@ -1238,14 +1283,14 @@ def build_app() -> gr.Blocks:
             music_val = str(music_path) if music_path else None
             return (_build_plan_df(proj.scenes), gr.Dataset(samples=samples), msg, state, 0,
                     *_settings_to_cfg_values(s), music_val, name,
-                    proj.concept)
+                    proj.concept, s.get("batch_image_prompt_common", ""))
 
         load_btn.click(
             fn=on_load_project,
             inputs=[load_dropdown],
             outputs=[plan_scene_df, gen_scene_btns, load_status, project_state, current_scene_idx,
                      *_cfg_outputs, new_music, new_name,
-                     plan_concept_input],
+                     plan_concept_input, plan_img_common_prompt],
         )
 
         def on_save_config(
@@ -1365,6 +1410,24 @@ def build_app() -> gr.Blocks:
             outputs=[plan_chatbot, plan_chat_input],
         )
         plan_chat_clear.click(fn=lambda: ([], ""), outputs=[plan_chatbot, plan_chat_input])
+
+        def on_save_common_image_prompt(state: dict, common_prompt: str):
+            proj = _project_from_state(state)
+            if proj is None:
+                return "プロジェクトが読み込まれていません"
+            try:
+                settings_manager.save(proj.project_dir, {
+                    "batch_image_prompt_common": (common_prompt or "").strip(),
+                })
+                return "共通画像プロンプトを保存しました"
+            except Exception as e:
+                return f"保存エラー: {e}"
+
+        plan_img_common_save_btn.click(
+            fn=on_save_common_image_prompt,
+            inputs=[project_state, plan_img_common_prompt],
+            outputs=[plan_img_common_status],
+        )
 
 
         # ============================================================
@@ -1711,16 +1774,16 @@ def build_app() -> gr.Blocks:
 
         def on_gen_vid_consult(instruction: str, state: dict, img_path: str, img_p: str, vid_p: str, vid_n: str):
             """画像・画像プロンプト・追加指示を元にLLMが動画プロンプトを生成する。"""
-            if not instruction.strip():
-                yield gr.update(), gr.update(), "追加指示を入力してください"
-                return
+            instruction_text = (instruction or "").strip()
+            if not instruction_text:
+                instruction_text = "追加指示なし。画像と画像プロンプトから自然で一貫性のある動画プロンプトを提案してください。"
 
             proj = _project_from_state(state)
             text_content = (
                 "これはWAN2.2 img2video向け動画プロンプトの生成タスクです。\n\n"
                 "【画像プロンプト（生成済み画像の内容）】\n"
                 f"{img_p or '(なし)'}\n\n"
-                f"【追加指示】{instruction}\n\n"
+                f"【追加指示】{instruction_text}\n\n"
                 "添付画像と上記の情報をもとに、WAN2.2 img2video向けの動画プロンプトを英語で生成してください。\n"
                 "以下の3要素を含めてください:\n"
                 "- Scene: 場面・背景・雰囲気の描写\n"
@@ -2291,20 +2354,25 @@ def build_app() -> gr.Blocks:
             if proj is None:
                 return "プロジェクトが読み込まれていません"
 
-            # 一括生成前にローカルLLMをアンロードしてVRAMを解放する
-            try:
-                if model_manager.is_loaded():
-                    model_manager.unload_model()
-            except Exception:
-                pass
+            is_prompt_mode = target == "image_prompt"
 
-            comfyui = _get_comfyui(proj)
-            if not comfyui.is_available():
-                return f"ComfyUIに接続できません: {proj.comfyui_url}"
+            # 画像/動画の実生成前はローカルLLMを開放してVRAMを節約
+            if not is_prompt_mode:
+                try:
+                    if model_manager.is_loaded():
+                        model_manager.unload_model()
+                except Exception:
+                    pass
+
+            comfyui = None
+            if not is_prompt_mode:
+                comfyui = _get_comfyui(proj)
+                if not comfyui.is_available():
+                    return f"ComfyUIに接続できません: {proj.comfyui_url}"
 
             with _batch_lock:
-                if _batch_gen and _batch_gen.is_running:
-                    return "既に一括生成が実行中です（停止してから再実行してください）"
+                if _batch_started_at is not None and _batch_finished_at is None:
+                    return "一括生成がすでに実行中です。完了または停止後に再実行してください"
 
                 _batch_run_id += 1
                 run_id = _batch_run_id
@@ -2312,14 +2380,18 @@ def build_app() -> gr.Blocks:
                 _batch_started_at = time.monotonic()
                 _batch_finished_at = None
                 _batch_stop_requested = False
-                _batch_current_task = "初期化中..."
-                if target == "image":
-                    _batch_mode_label = "画像の一括生成"
+                _batch_current_task = "開始準備中..."
+
+                if is_prompt_mode:
+                    _batch_mode_label = "画像プロンプト生成"
+                elif target == "image":
+                    _batch_mode_label = "画像生成"
                 elif video_quality == "final":
-                    _batch_mode_label = "最終版動画の一括生成"
+                    _batch_mode_label = "最終版動画生成"
                 else:
-                    _batch_mode_label = "プレビュー動画の一括生成"
-                _batch_gen = BatchGenerator(proj, comfyui)
+                    _batch_mode_label = "プレビュー動画生成"
+
+                _batch_gen = None if is_prompt_mode else BatchGenerator(proj, comfyui)
 
             with _batch_lock:
                 _batch_log.append(f"{_batch_mode_label} を開始")
@@ -2338,12 +2410,41 @@ def build_app() -> gr.Blocks:
                     _batch_current_task = f"[ERROR] {msg}"
                     _batch_log.append(f"[ERROR] {msg}")
 
-            worker = _batch_gen.run_async(
-                on_progress=on_progress,
-                on_error=on_error,
-                target=target,
-                video_quality=video_quality,
-            )
+            if is_prompt_mode:
+                def _run_prompt_batch():
+                    total = len(proj.scenes)
+                    common_prompt = settings_manager.load(proj.project_dir).get("batch_image_prompt_common", "")
+                    for scene in proj.scenes:
+                        if _batch_stop_requested:
+                            break
+                        if not scene.enabled:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は無効化されているためスキップ")
+                            continue
+                        if (scene.image_prompt or "").strip():
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} は画像プロンプト入力済みのためスキップ")
+                            continue
+                        if not (scene.plot or "").strip():
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id} はシーン説明が空のためスキップ")
+                            continue
+                        try:
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 画像プロンプト生成中...")
+                            scene.image_prompt = _generate_image_prompt_from_plot(scene.plot, common_prompt, proj)
+                            if scene.status == "empty":
+                                scene.status = "plot_done"
+                            proj.save_scene(scene)
+                            on_progress(scene.scene_id, total, f"シーン {scene.scene_id}/{total}: 完了")
+                        except Exception as e:
+                            on_error(scene.scene_id, f"画像プロンプト生成失敗: {e}")
+
+                worker = threading.Thread(target=_run_prompt_batch, daemon=True)
+                worker.start()
+            else:
+                worker = _batch_gen.run_async(
+                    on_progress=on_progress,
+                    on_error=on_error,
+                    target=target,
+                    video_quality=video_quality,
+                )
 
             def _watch_batch(this_run_id: int):
                 global _batch_finished_at, _batch_current_task
@@ -2357,8 +2458,8 @@ def build_app() -> gr.Blocks:
                     if _batch_gen and _batch_gen.is_running:
                         return
                     if _batch_stop_requested:
-                        _batch_current_task = "停止済み"
-                        _batch_log.append(f"停止: 合計 {elapsed}")
+                        _batch_current_task = "停止"
+                        _batch_log.append(f"停止: 経過 {elapsed}")
                     else:
                         _batch_current_task = "完了"
                         _batch_log.append(f"完了: 合計 {elapsed}")
@@ -2371,18 +2472,24 @@ def build_app() -> gr.Blocks:
         def on_batch_image_start(state):
             return _start_batch(state, target="image")
 
+        def on_batch_image_prompt_start(state):
+            return _start_batch(state, target="image_prompt")
+
         def on_batch_preview_start(state):
             return _start_batch(state, target="video", video_quality="preview")
 
         def on_batch_stop():
             global _batch_current_task, _batch_stop_requested
+            with _batch_lock:
+                is_running = _batch_started_at is not None and _batch_finished_at is None
+            if not is_running:
+                return "実行中の一括生成はありません"
             if _batch_gen:
                 _batch_gen.stop()
-                with _batch_lock:
-                    _batch_stop_requested = True
-                    _batch_current_task = "停止リクエスト送信済み"
-                return "停止リクエストを送信しました"
-            return "実行中の生成はありません"
+            with _batch_lock:
+                _batch_stop_requested = True
+                _batch_current_task = "停止要求を送信しました"
+            return "停止要求を送信しました"
 
         def on_batch_progress_poll():
             with _batch_lock:
@@ -2393,7 +2500,7 @@ def build_app() -> gr.Blocks:
                 if _batch_finished_at is not None:
                     total = _format_elapsed(_batch_finished_at - _batch_started_at)
                     state_label = "完了"
-                elif _batch_gen and _batch_gen.is_running:
+                elif _batch_started_at is not None and _batch_finished_at is None:
                     total = "-"
                     state_label = "実行中"
                 else:
@@ -2417,6 +2524,7 @@ def build_app() -> gr.Blocks:
             return _start_batch(state, target="video", video_quality="final")
 
         gen_batch_img_btn.click(fn=on_batch_image_start, inputs=[project_state], outputs=[gen_progress])
+        gen_batch_img_prompt_btn.click(fn=on_batch_image_prompt_start, inputs=[project_state], outputs=[gen_progress])
         gen_batch_preview_btn.click(fn=on_batch_preview_start, inputs=[project_state], outputs=[gen_progress])
         gen_stop_btn.click(fn=on_batch_stop, outputs=[gen_progress])
         gen_batch_final_btn.click(fn=on_batch_final_start, inputs=[project_state], outputs=[gen_progress])
