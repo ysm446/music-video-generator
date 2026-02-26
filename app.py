@@ -2259,6 +2259,69 @@ def build_app() -> gr.Blocks:
                 debug = _format_regen_debug()
             return f"生成キューに追加しました: {label}", debug
 
+        def _build_scene_regen_args(scene_idx: int, state: dict) -> tuple:
+            proj = _project_from_state(state)
+            if proj is None or not proj.scenes:
+                raise ValueError("プロジェクトが読み込まれていません")
+            idx = max(0, min(int(scene_idx), len(proj.scenes) - 1))
+            scene = proj.scenes[idx]
+            return (
+                idx,
+                state,
+                scene.plot,
+                scene.image_prompt,
+                scene.image_negative,
+                scene.video_prompt,
+                scene.video_negative,
+                scene.image_seed,
+                scene.video_seed,
+                scene.image_workflow or "",
+                scene.video_workflow or "",
+            )
+
+        def _enqueue_batch_media(state: dict, target: str, video_quality: str = "preview") -> tuple[str, str]:
+            proj = _project_from_state(state)
+            if proj is None:
+                return "プロジェクトが読み込まれていません", _format_regen_debug()
+            comfyui = _get_comfyui(proj)
+            if not comfyui.is_available():
+                return f"ComfyUIに接続できません: {proj.comfyui_url}", _format_regen_debug()
+
+            queued = 0
+            skipped = 0
+            for idx, scene in enumerate(proj.scenes):
+                scene_dir = proj.scene_dir(scene.scene_id)
+                if not scene.enabled:
+                    skipped += 1
+                    continue
+                if target == "image":
+                    if not (scene.image_prompt or "").strip():
+                        skipped += 1
+                        continue
+                    img_path = scene.image_path(scene_dir)
+                    if img_path.exists() and img_path.stat().st_size > 0:
+                        skipped += 1
+                        continue
+                else:
+                    img_path = scene.image_path(scene_dir)
+                    if not (img_path.exists() and img_path.stat().st_size > 0):
+                        skipped += 1
+                        continue
+                    if video_quality == "final":
+                        vid_path = scene.video_final_path(scene_dir)
+                    else:
+                        vid_path = scene.video_preview_path(scene_dir)
+                    if vid_path.exists() and vid_path.stat().st_size > 0:
+                        skipped += 1
+                        continue
+
+                args = _build_scene_regen_args(idx, state)
+                _enqueue_regen(*args, target=target, video_quality=video_quality)
+                queued += 1
+
+            mode_label = "画像" if target == "image" else ("最終版動画" if video_quality == "final" else "プレビュー動画")
+            return f"{mode_label}一括: {queued}件をキュー追加（スキップ {skipped}件）", _format_regen_debug()
+
         def on_regen_queue_poll(state, idx):
             nonlocal _regen_dirty
             with _regen_lock:
@@ -2933,7 +2996,8 @@ def build_app() -> gr.Blocks:
             return f"{_batch_mode_label}を開始しました"
 
         def on_batch_image_start(state):
-            return _start_batch(state, target="image")
+            msg, _ = _enqueue_batch_media(state, target="image")
+            return msg
 
         def on_batch_image_prompt_start(state):
             return _start_batch(state, target="image_prompt")
@@ -2942,14 +3006,20 @@ def build_app() -> gr.Blocks:
             return _start_batch(state, target="video_prompt")
 
         def on_batch_preview_start(state):
-            return _start_batch(state, target="video", video_quality="preview")
+            msg, _ = _enqueue_batch_media(state, target="video", video_quality="preview")
+            return msg
 
         def on_batch_stop():
             global _batch_current_task, _batch_stop_requested
             with _batch_lock:
                 is_running = _batch_started_at is not None and _batch_finished_at is None
+            with _regen_lock:
+                cleared = len(_regen_queue)
+                _regen_queue.clear()
+                if cleared > 0:
+                    _append_regen_log(f"停止: 待機中 {cleared} 件をクリア")
             if not is_running:
-                return "実行中の一括生成はありません"
+                return "実行中の一括生成はありません（メディア生成キューはクリアしました）"
             if _batch_gen:
                 _batch_gen.stop()
             with _batch_lock:
@@ -2987,7 +3057,8 @@ def build_app() -> gr.Blocks:
                 return "\n".join(lines)
 
         def on_batch_final_start(state):
-            return _start_batch(state, target="video", video_quality="final")
+            msg, _ = _enqueue_batch_media(state, target="video", video_quality="final")
+            return msg
 
         gen_batch_img_prompt_btn.click(fn=on_batch_image_prompt_start, inputs=[project_state], outputs=[gen_progress])
         gen_batch_img_btn.click(fn=on_batch_image_start, inputs=[project_state], outputs=[gen_progress])
