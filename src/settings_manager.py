@@ -28,8 +28,6 @@ DEFAULT_SETTINGS: dict = {
     "scene_duration": 5,
     "model": "qwen3-vl-4b (推奨)",
     "export_quality": "プレビュー (640×360)",
-    "export_output_preview": True,
-    "export_output_final": True,
     "export_with_music": True,
     "export_loop_music": False,
     "export_audio_fade_in": False,
