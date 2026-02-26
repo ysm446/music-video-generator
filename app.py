@@ -30,6 +30,20 @@ from src.video_export import VideoExporter
 _APP_DIR = Path(__file__).parent.resolve()
 CONFIG_PATH = _APP_DIR / "config.yaml"
 _WORKFLOWS_DIR = _APP_DIR / "workflows"
+APP_CSS = """
+#gen_batch_preview_btn button,
+#gen_batch_final_btn button {
+  background: #f59e0b !important;
+  border-color: #d97706 !important;
+  color: #111827 !important;
+}
+#gen_batch_preview_btn button:hover,
+#gen_batch_final_btn button:hover {
+  background: #d97706 !important;
+  border-color: #b45309 !important;
+  color: #111827 !important;
+}
+"""
 
 
 def _list_workflows(kind: str) -> list[str]:
@@ -488,18 +502,10 @@ def create_generate_tab():
         with gr.Row():
             # --- サイドバー ---
             with gr.Column(scale=1, min_width=140):
-                with gr.Accordion("一括生成", open=False):
-                    gen_batch_img_prompt_btn = gr.Button("画像プロンプト")
-                    gen_batch_img_btn = gr.Button("画像", variant="primary")
-                    gen_batch_vid_prompt_btn = gr.Button("動画プロンプト")
-                    gen_batch_preview_btn = gr.Button("プレビュー動画")
-                    gen_batch_final_btn = gr.Button("最終版動画", variant="secondary")
-                    gen_stop_btn = gr.Button("停止")
-                    gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
-                gen_task_debug = gr.Textbox(label="生成キューデバッグ", interactive=False, lines=8)
                 gr.Markdown("### シーン一覧")
                 gen_scene_btns = gr.Dataset(
                     label="",
+                    show_label=False,
                     components=[gr.Textbox(visible=False)],
                     samples=[],
                     type="index",
@@ -509,6 +515,15 @@ def create_generate_tab():
                 with gr.Row():
                     gen_prev_btn = gr.Button("◀ Prev")
                     gen_next_btn = gr.Button("Next ▶")
+                with gr.Accordion("一括生成", open=False):
+                    gen_batch_img_prompt_btn = gr.Button("画像プロンプト")
+                    gen_batch_img_btn = gr.Button("画像", variant="primary")
+                    gen_batch_vid_prompt_btn = gr.Button("動画プロンプト")
+                    gen_batch_preview_btn = gr.Button("プレビュー動画", elem_id="gen_batch_preview_btn")
+                    gen_batch_final_btn = gr.Button("最終版動画", variant="secondary", elem_id="gen_batch_final_btn")
+                    gen_stop_btn = gr.Button("停止")
+                    gen_progress = gr.Textbox(label="進捗", interactive=False, lines=4)
+                gen_task_debug = gr.Textbox(label="生成キューデバッグ", interactive=False, lines=8)
 
             # --- メインエリア ---
             with gr.Column(scale=4):
@@ -1245,7 +1260,7 @@ def _settings_to_export_values(s: dict) -> tuple:
 def build_app() -> gr.Blocks:
     """Gradioアプリを構築して返す。"""
 
-    with gr.Blocks(title="Music Video Generator") as demo:
+    with gr.Blocks(title="Music Video Generator", css=APP_CSS) as demo:
         # グローバルState
         project_state = gr.State(None)   # {"project_name": str}
         current_scene_idx = gr.State(0)  # 0-based index
@@ -2245,13 +2260,23 @@ def build_app() -> gr.Blocks:
                 task_id = _regen_next_id
                 _regen_next_id += 1
                 label = f"#{task_id} シーン{sid} {mode_label}"
-                _regen_queue.append({
+                task = {
                     "id": task_id,
                     "label": label,
                     "args": args,
                     "target": target,
                     "video_quality": video_quality,
-                })
+                }
+                # 優先度: 画像タスクを動画タスクより先に処理（同種内はFIFO維持）
+                if target == "image":
+                    insert_at = len(_regen_queue)
+                    for i, q in enumerate(_regen_queue):
+                        if q.get("target") != "image":
+                            insert_at = i
+                            break
+                    _regen_queue.insert(insert_at, task)
+                else:
+                    _regen_queue.append(task)
                 _append_regen_log(f"追加: {label}")
                 if not _regen_worker_running:
                     _regen_worker_running = True
