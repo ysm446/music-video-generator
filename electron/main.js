@@ -1,12 +1,12 @@
 const { app, BrowserWindow, dialog, Menu } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, exec } = require("child_process");
 const http = require("http");
 
 const APP_ROOT = path.resolve(__dirname, "..");
-const PY_ENTRY = path.join(APP_ROOT, "app.py");
+const PY_ENTRY = path.join(APP_ROOT, "api.py");
 const HOST = "127.0.0.1";
-const PORT = 7860;
+const PORT = 8000;
 const START_TIMEOUT_MS = 120000;
 
 let pyProc = null;
@@ -37,9 +37,40 @@ function waitForServer(url, timeoutMs) {
   });
 }
 
+function killPortProcess(port) {
+  return new Promise((resolve) => {
+    if (process.platform === "win32") {
+      exec(`netstat -ano`, (err, stdout) => {
+        if (err || !stdout) { resolve(); return; }
+        const pids = new Set();
+        for (const line of stdout.split('\n')) {
+          if (line.includes(`:${port} `) && line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parts[parts.length - 1];
+            if (pid && pid !== '0') pids.add(pid);
+          }
+        }
+        if (pids.size === 0) { resolve(); return; }
+        let remaining = pids.size;
+        for (const pid of pids) {
+          spawn("taskkill", ["/pid", pid, "/f", "/t"], { stdio: "ignore" })
+            .on("close", () => { if (--remaining === 0) setTimeout(resolve, 500); });
+        }
+      });
+    } else {
+      exec(`lsof -ti:${port}`, (err, stdout) => {
+        if (err || !stdout) { resolve(); return; }
+        const pids = stdout.trim().split('\n').filter(Boolean);
+        if (pids.length === 0) { resolve(); return; }
+        exec(`kill -9 ${pids.join(' ')}`, () => setTimeout(resolve, 500));
+      });
+    }
+  });
+}
+
 function startPythonServer() {
   const pythonCmd = process.platform === "win32" ? "python" : "python3";
-  const args = [PY_ENTRY, "--host", HOST, "--port", String(PORT), "--no-browser"];
+  const args = [PY_ENTRY, "--host", HOST, "--port", String(PORT)];
 
   pyProc = spawn(pythonCmd, args, {
     cwd: APP_ROOT,
@@ -102,6 +133,7 @@ app.on("before-quit", () => {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  await killPortProcess(PORT);
   startPythonServer();
   try {
     await createWindow();

@@ -35,6 +35,8 @@ ENV/
 models/*/
 !models/.gitkeep
 
+ui/node_modules/
+
 # データファイル
 data/sd_outputs/
 data/database/
