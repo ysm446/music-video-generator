@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import json
 import shutil
@@ -3235,7 +3236,21 @@ def build_app() -> gr.Blocks:
 # エントリポイント
 # ============================================================
 
-if __name__ == "__main__":
+def start_server(
+    host: str = "127.0.0.1",
+    port: int = 7860,
+    inbrowser: bool = False,
+):
+    """Gradio サーバーを起動する。Electron からの呼び出しにも使う。"""
     app = build_app()
     app.queue()
-    app.launch(share=False, server_name="0.0.0.0", inbrowser=True)
+    app.launch(share=False, server_name=host, server_port=port, inbrowser=inbrowser)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Music Video Generator server")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+    start_server(host=args.host, port=args.port, inbrowser=(not args.no_browser))

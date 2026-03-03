@@ -86,3 +86,7 @@ models/
 
 # ComfyUI出力
 output/
+
+# Electron
+electron/node_modules/
+electron/dist/
