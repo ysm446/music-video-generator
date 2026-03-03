@@ -17,24 +17,9 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]['id']
 
-function useTheme() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') ?? 'dark'
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
-  return { theme, toggle }
-}
-
 function AppInner() {
   const [activeTab, setActiveTab] = useState<TabId>('project')
   const { projectName, switchProject } = useProject()
-  const { theme, toggle } = useTheme()
 
   // 起動時に最後に開いたプロジェクトを自動読込
   useEffect(() => {
@@ -63,29 +48,13 @@ function AppInner() {
             {tab.label}
           </button>
         ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {projectName && (
+        {projectName && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
             <span className="text-muted" style={{ fontSize: 12 }}>
               📁 {projectName}
             </span>
-          )}
-          <button
-            onClick={toggle}
-            title={theme === 'dark' ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius)',
-              padding: '3px 8px',
-              fontSize: 15,
-              cursor: 'pointer',
-              color: 'var(--color-text-muted)',
-              lineHeight: 1,
-            }}
-          >
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* タブコンテンツ */}

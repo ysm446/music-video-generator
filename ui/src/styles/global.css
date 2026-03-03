@@ -1,38 +1,21 @@
-/* ========== CSS 変数（ダークモード・デフォルト） ========== */
+/* ========== CSS 変数（グレー系ダーク固定） ========== */
 :root {
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-surface2: #334155;
+  --color-bg: #1c1c1c;
+  --color-surface: #252525;
+  --color-surface2: #303030;
   --color-primary: #e94560;
   --color-accent: #f59e0b;
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
-  --color-border: #334155;
-  --color-input-bg: #1e293b;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-muted: #94a3b8;
+  --color-text: #e4e4e4;
+  --color-text-muted: #909090;
+  --color-border: #3d3d3d;
+  --color-input-bg: #1f1f1f;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-muted: #909090;
   --radius: 6px;
   --radius-lg: 10px;
   --font-mono: 'Consolas', 'Monaco', monospace;
-}
-
-/* ========== ライトモード ========== */
-[data-theme="light"] {
-  --color-bg: #f1f5f9;
-  --color-surface: #ffffff;
-  --color-surface2: #e2e8f0;
-  --color-primary: #e94560;
-  --color-accent: #d97706;
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
-  --color-border: #cbd5e1;
-  --color-input-bg: #f8fafc;
-  --color-success: #059669;
-  --color-warning: #d97706;
-  --color-error: #dc2626;
-  --color-muted: #64748b;
 }
 
 /* ========== リセット ========== */
@@ -126,7 +109,7 @@ button:disabled {
   color: var(--color-text);
   border: 1px solid var(--color-border);
 }
-.btn-secondary:hover:not(:disabled) { background: var(--color-border); }
+.btn-secondary:hover:not(:disabled) { background: #3a3a3a; }
 
 .btn-accent {
   background: var(--color-accent);
@@ -183,15 +166,10 @@ button:disabled {
   font-weight: 600;
 }
 
-.status-empty    { background: #374151; color: #9ca3af; }
-.status-plot_done { background: #1e3a5f; color: #60a5fa; }
-.status-image_done { background: #1a3d2e; color: #4ade80; }
-.status-video_done { background: #3d1a3d; color: #c084fc; }
-
-[data-theme="light"] .status-empty    { background: #e5e7eb; color: #6b7280; }
-[data-theme="light"] .status-plot_done { background: #dbeafe; color: #1d4ed8; }
-[data-theme="light"] .status-image_done { background: #d1fae5; color: #065f46; }
-[data-theme="light"] .status-video_done { background: #ede9fe; color: #5b21b6; }
+.status-empty     { background: #2e2e2e; color: #707070; }
+.status-plot_done { background: #1e2d42; color: #60a5fa; }
+.status-image_done { background: #1a3028; color: #4ade80; }
+.status-video_done { background: #2d1f42; color: #c084fc; }
 
 /* ========== アプリレイアウト ========== */
 .app-layout {
@@ -227,7 +205,7 @@ button:disabled {
   border-color: var(--color-border);
 }
 
-.tab-bar-btn:hover:not(.active) {
+.tab-bar-btn:hover:not(.active):not(:disabled) {
   color: var(--color-text);
   background: var(--color-input-bg);
 }
@@ -269,6 +247,7 @@ button:disabled {
 .w-full { width: 100%; }
 
 .mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
 .mt-4 { margin-top: 16px; }
 .mb-2 { margin-bottom: 8px; }
 .mb-4 { margin-bottom: 16px; }
@@ -289,13 +268,9 @@ button:disabled {
   font-size: 13px;
   margin-bottom: 8px;
 }
-.alert-error { background: #3b1515; border: 1px solid var(--color-error); color: #fca5a5; }
-.alert-success { background: #0f2d1e; border: 1px solid var(--color-success); color: #6ee7b7; }
-.alert-info { background: #0d2240; border: 1px solid var(--color-surface2); color: #93c5fd; }
-
-[data-theme="light"] .alert-error { background: #fee2e2; color: #991b1b; }
-[data-theme="light"] .alert-success { background: #d1fae5; color: #065f46; }
-[data-theme="light"] .alert-info { background: #dbeafe; color: #1e40af; }
+.alert-error   { background: #2e1515; border: 1px solid #7f1d1d; color: #fca5a5; }
+.alert-success { background: #142314; border: 1px solid #166534; color: #86efac; }
+.alert-info    { background: #1a2333; border: 1px solid #1e3a5f; color: #93c5fd; }
 
 /* ========== スピナー ========== */
 @keyframes spin { to { transform: rotate(360deg); } }
