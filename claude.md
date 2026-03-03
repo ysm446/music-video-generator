@@ -2,12 +2,14 @@
 
 ## プロジェクト概要
 
-音楽ファイルをもとにミュージックビデオを生成するGradioアプリケーション。
+音楽ファイルをもとにミュージックビデオを生成するデスクトップアプリケーション。
 LLM(Qwen3-VL)と対話しながらシーンを計画し、ComfyUIバックエンドで画像(z-image Turbo)と動画(WAN2.2)を自動生成する。
 
 ## 技術スタック
 
-- **UI**: Gradio (Python)
+- **デスクトップ**: Electron（Chromiumシェル）
+- **フロントエンド**: React + TypeScript + Vite
+- **バックエンド**: FastAPI + Uvicorn (Python)
 - **LLM**: Qwen3-VL（OpenAI互換APIまたはローカルtransformers実行）
 - **画像生成**: z-image Turbo（ComfyUI経由）
 - **動画生成**: WAN2.2 img2video（ComfyUI経由）
@@ -17,35 +19,75 @@ LLM(Qwen3-VL)と対話しながらシーンを計画し、ComfyUIバックエン
 ## アーキテクチャ
 
 ```
-Gradio UI → Python Backend → ComfyUI API (localhost:8188)
-                           → Qwen3-VL API (OpenAI互換 or transformers)
-                           → ffmpeg (動画結合)
+Electron → HTTP(8000) → FastAPI (api.py)
+                         ├── 静的ファイル配信 (ui/dist/)
+                         ├── REST API / SSE (/api/*)
+                         ├── ComfyUI API (localhost:8188)
+                         ├── Qwen3-VL API (OpenAI互換 or transformers)
+                         └── ffmpeg (動画結合)
 ```
+
+- `electron/main.js` が FastAPI (`api.py`) をサブプロセスとして起動し、起動完了を待って BrowserWindow を開く
+- React UI は `ui/dist/` にビルドし、FastAPI の `StaticFiles` で配信する
+- すべての API は `/api/` プレフィックスで提供される
+- `src/` モジュール（ビジネスロジック）は変更せず、`api_routes/` から呼び出す
 
 ## ディレクトリ構造
 
-### アプリケーション
-
 ```
 music-video-generator/
-├── CLAUDE.md
-├── app.py                      # Gradioメインアプリ（薄いUI層）
-├── config.yaml                 # 設定ファイル（API URL、デフォルトパラメータ等）
-├── requirements.txt
-├── src/
-│   ├── project.py              # プロジェクト管理（作成・保存・読込）
-│   ├── scene.py                # シーンデータ管理（Sceneデータクラス）
-│   ├── llm_client.py           # Qwen3-VL OpenAI互換API連携
-│   ├── model_manager.py        # Qwen3-VL ローカルtransformers実行
-│   ├── settings_manager.py     # プロジェクト設定の保存・読込
-│   ├── comfyui_client.py       # ComfyUI API連携（画像・動画生成）
+├── api.py                      # FastAPI エントリポイント
+├── api_routes/                 # ルーター群
+│   ├── _shared.py              # BASE_DIR 等の共有変数
+│   ├── projects.py             # プロジェクト CRUD
+│   ├── scenes.py               # シーン CRUD + 並び替え
+│   ├── generation.py           # 画像/動画生成 + バッチ
+│   ├── llm.py                  # LLM チャット・プロンプト生成 (SSE)
+│   ├── files.py                # ファイルサービング
+│   ├── export.py               # 動画書き出し (SSE)
+│   └── model.py                # ローカルモデル管理
+├── src/                        # コアビジネスロジック（変更禁止）
+│   ├── project.py              # プロジェクト管理
+│   ├── scene.py                # Scene データクラス
+│   ├── llm_client.py           # OpenAI互換API連携
+│   ├── model_manager.py        # ローカルtransformers実行
+│   ├── settings_manager.py     # プロジェクト設定管理
+│   ├── comfyui_client.py       # ComfyUI API連携
 │   ├── batch_generator.py      # 一括生成処理
-│   └── video_export.py         # ffmpeg結合・書き出し
-└── workflows/
-    ├── image/
-    │   └── image_z_image_turbo.json   # z-image Turbo用ワークフロー
-    └── video/
-        └── video_wan2_2_14B_i2v.json  # WAN2.2 img2video用ワークフロー
+│   └── video_export.py         # ffmpeg書き出し
+├── ui/                         # React フロントエンド
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── api/                # API クライアント (axios)
+│   │   │   ├── client.ts       # axios インスタンス (baseURL: '')
+│   │   │   ├── projects.ts
+│   │   │   ├── scenes.ts
+│   │   │   ├── generation.ts
+│   │   │   ├── export.ts
+│   │   │   └── model.ts
+│   │   ├── context/ProjectContext.tsx
+│   │   ├── hooks/
+│   │   │   ├── useSSE.ts       # POST SSE (fetch + ReadableStream)
+│   │   │   └── usePoll.ts      # setInterval ラッパー
+│   │   ├── components/common/
+│   │   │   ├── ChatPanel.tsx
+│   │   │   └── SeedInput.tsx
+│   │   └── tabs/
+│   │       ├── ProjectTab/
+│   │       ├── PlanTab/
+│   │       ├── GenerateTab/
+│   │       ├── ExportTab/
+│   │       └── ModelTab/
+│   └── dist/                   # ビルド成果物（要 npm run build）
+├── electron/
+│   ├── main.js                 # Electron メインプロセス
+│   └── preload.js
+├── workflows/
+│   ├── image/                  # ComfyUI 画像ワークフロー JSON
+│   └── video/                  # ComfyUI 動画ワークフロー JSON
+├── config.yaml                 # デフォルト設定
+├── requirements.txt
+└── start.bat                   # 起動スクリプト (Windows)
 ```
 
 ### プロジェクトデータ（実行時に生成）
@@ -56,18 +98,19 @@ music-video-generator/
 ```
 projects/
 └── {project_name}/
-    ├── project.json          # プロジェクト全体メタデータ
-    ├── settings.json         # UIパラメータ（URL、ワークフロー等）
+    ├── project.json            # プロジェクト全体メタデータ
+    ├── settings.json           # UIパラメータ（URL、ワークフロー等）
     ├── music/
     │   └── song.mp3
     ├── scenes/
     │   ├── scene_001/
-    │   │   ├── scene.json    # プロット、プロンプト、ステータス
-    │   │   ├── image.png
-    │   │   └── video.mp4
+    │   │   ├── scene.json      # プロット、プロンプト、ステータス
+    │   │   ├── image.png       # アクティブ画像
+    │   │   ├── video_preview.mp4
+    │   │   ├── video_final.mp4
+    │   │   ├── image_versions/ # 生成履歴
+    │   │   └── video_versions/
     │   └── scene_NNN/
-    │       └── ...
-    ├── references/           # スタイル参照画像
     └── output/
         └── final.mp4
 ```
@@ -109,12 +152,14 @@ projects/
   "order": 1,
   "enabled": true,
   "section": "intro",
-  "lyrics": "該当部分の歌詞",
   "plot": "シーンの内容説明（日本語）",
   "image_prompt": "英語プロンプト",
   "image_negative": "英語ネガティブプロンプト",
   "image_seed": -1,
   "image_workflow": null,
+  "active_image_version": "",
+  "active_video_preview_version": "",
+  "active_video_final_version": "",
   "video_prompt": "英語モーション指示",
   "video_negative": "英語ネガティブプロンプト",
   "video_seed": -1,
@@ -139,68 +184,67 @@ empty → plot_done → image_done → video_done
 ### シードの扱い
 
 - `image_seed` / `video_seed` が `-1` のときはランダム生成（ComfyUI側でも毎回異なるシードを注入）
-- `image_seed` は生成済みPNGのtEXtメタデータ（`"prompt"` チャンク）から読み取り可能
+- `image_seed` は生成済みPNGのtEXtメタデータから読み取り可能
 - `video_seed` はscene.jsonから読み取る（MP4にはシード埋め込みなし）
 
-## UI設計
+## API エンドポイント一覧
 
-### タブ構成
+| メソッド | パス | 説明 |
+|---------|------|------|
+| GET | `/api/config` | アプリ設定・最終プロジェクト名 |
+| GET | `/api/projects` | プロジェクト一覧 |
+| POST | `/api/projects` | プロジェクト新規作成（multipart） |
+| GET | `/api/projects/{name}` | プロジェクト詳細（シーン一覧含む） |
+| PUT | `/api/projects/{name}/settings` | プロジェクト設定保存 |
+| GET | `/api/projects/{name}/workflows` | ワークフロー一覧 |
+| GET | `/api/projects/{name}/scenes` | シーン一覧 |
+| PUT | `/api/projects/{name}/scenes/{id}` | シーン保存 |
+| POST | `/api/projects/{name}/scenes/{id}/move` | シーン順序変更 |
+| POST | `/api/projects/{name}/scenes/{id}/insert-after` | シーン挿入 |
+| DELETE | `/api/projects/{name}/scenes/{id}` | シーン削除 |
+| POST | `/api/projects/{name}/scenes/bulk-save` | シーン一括保存 |
+| POST | `/api/llm/chat-stream` | LLMチャット SSE |
+| POST | `/api/projects/{name}/llm/generate-all-prompts` | 全シーンプロンプト生成 SSE |
+| POST | `/api/projects/{name}/scenes/{id}/llm/improve-prompt` | シーンプロンプト改善 |
+| POST | `/api/projects/{name}/scenes/{id}/llm/image-chat-stream` | 画像プロンプト編集 SSE |
+| POST | `/api/projects/{name}/scenes/{id}/llm/video-prompt-stream` | 動画プロンプト生成 SSE |
+| GET | `/api/projects/{name}/scenes/{id}/media` | メディアURL・バージョン情報 |
+| POST | `/api/projects/{name}/scenes/{id}/generate` | 個別生成キュー追加 |
+| POST | `/api/projects/{name}/scenes/{id}/use-version` | バージョン切り替え |
+| DELETE | `/api/projects/{name}/scenes/{id}/version` | バージョン削除 |
+| GET | `/api/queue/status` | 個別生成キュー状態 |
+| POST | `/api/batch/start` | 一括生成開始 |
+| POST | `/api/batch/stop` | 一括生成停止 |
+| GET | `/api/batch/status` | 一括生成状態 |
+| GET | `/api/projects/{name}/export/thumbnails` | サムネイル一覧 |
+| GET | `/api/projects/{name}/export/outputs` | 書き出し済みファイル一覧 |
+| POST | `/api/projects/{name}/export` | 動画書き出し SSE |
+| GET | `/api/model/status` | モデルロード状態 |
+| GET | `/api/model/presets` | モデルプリセット一覧 |
+| POST | `/api/model/load` | ローカルモデルロード |
+| DELETE | `/api/model` | ローカルモデルアンロード |
+| GET | `/api/files/{path:path}` | プロジェクトファイル配信 |
 
-5タブ: **プロジェクト** / **計画** / **生成・編集** / **書き出し** / **モデル管理**
+## SSEパターン（Python）
 
-### 共通パターン: サイドバー + メインエリア
+ブロッキング処理を asyncio.Queue + threading でブリッジする共通パターン:
 
-計画タブと生成・編集タブは左にサイドバー（シーン一覧ナビ）、右にメインエリア。
-
-### ページ切り替え方式
-
-`gr.State` で現在のシーン番号を管理。サイドバーの `gr.Dataset` クリック、または Prev/Next ボタンで `load_gen_scene()` / `load_plan_scene()` を呼び出し、メインエリアの全コンポーネント値をPython側で差し替える。
-
-### 保存方式
-
-**明示保存**。各シーン編集画面に「保存」ボタンを配置。保存ボタン押下時にscene.json（ディスク）に書き込む。`project_state` は `{"project_name": str}` のみ保持し、都度 `Project.load()` で復元する。
-
-### プロジェクトタブ
-
-- 新規プロジェクト作成（プロジェクト名、音楽アップロード → 長さ自動検出 → シーン数算出 → ディレクトリ生成）
-- 既存プロジェクト読込（プロジェクト一覧から選択）
-- 基本設定（ComfyUI URL、画像解像度、動画解像度、FPS、フレーム数、ワークフロー選択）
-- 設定は `config.yaml` とプロジェクトの `project.json` / `settings.json` 両方に保存
-
-### 計画タブ
-
-- 上部: LLMとのチャットUI（コンセプト相談、全シーン一括提案ボタン）
-- 下部: 選択中シーンの編集（セクション、歌詞、プロット、画像/動画プロンプト、ワークフロー指定、メモ）
-- サイドバー: シーン番号 + ステータスアイコン一覧
-- 「このシーンをQwenに相談」ボタンで個別プロンプト改善
-
-### 生成・編集タブ
-
-- サイドバー: シーン一覧 + 一括生成ボタン（開始/停止）+ 進捗表示
-- メインエリア: 画像プレビュー + 動画プレビュー + サブタブ
-  - **画像タブ**: プロンプト・ネガティブ・シード・ワークフロー + LLM相談チャット（プロンプト編集専用）
-    - 🎲 シードをランダム(-1)に、♻️ 生成済みPNGからシード読み取り
-    - LLMチャットは「編集タスク」として指示を受け付け、`[PROMPT_UPDATE]` ブロックで返答させて自動反映
-  - **動画タブ**: プロンプト・ネガティブ・シード・ワークフロー + LLMによる動画プロンプト生成
-    - 🎲/♻️ シードボタン（動画はscene.jsonからシード読み取り）
-    - 追加指示テキストボックス（`video_instruction` としてscene.jsonに保存）+ 生成ボタン
-    - 「生成」押下で現在の画像・画像プロンプト・追加指示をLLMに渡し、Scene/Action/Camera形式の動画プロンプトを生成
-- 「有効にする」チェックボックス（無効シーンはバッチ生成・書き出しでスキップ）
-- 個別再生成ボタン（画像のみ・動画のみ・両方）
-- 保存ボタン（プロンプト・シード・ワークフロー・追加指示・有効フラグをscene.jsonに書き込み）
-
-### 書き出しタブ
-
-- シーンサムネイルギャラリー（画像一覧）
-- 音楽合成チェックボックス
-- 「最終動画を書き出し」ボタン（ffmpeg concat → 音楽合成）
-- 最終動画プレビュー
-
-### モデル管理タブ
-
-- Qwen3-VL ローカルモデルのロード/アンロード（HuggingFaceから自動ダウンロード）
-- モデルプリセット一覧（`model_manager.MODEL_PRESETS`）
-- VRAM使用状況表示
+```python
+async def event_generator():
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+    def _producer():
+        for chunk in _some_blocking_generator():
+            loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        loop.call_soon_threadsafe(queue.put_nowait, None)
+    threading.Thread(target=_producer, daemon=True).start()
+    while True:
+        item = await queue.get()
+        if item is None: break
+        yield f'data: {json.dumps({"chunk": item})}\n\n'
+    yield 'data: {"done": true}\n\n'
+return EventSourceResponse(event_generator())
+```
 
 ## LLM連携の2モード
 
@@ -208,62 +252,58 @@ empty → plot_done → image_done → video_done
 
 - `LLMClient(base_url, model)` で接続
 - メッセージはOpenAI形式 `{"role": "user", "content": [{"type": "text"/"image_url", ...}]}`
-- 参照画像はbase64エンコードして `image_url` 形式で渡す
 
 ### ローカルtransformers（`model_manager.py`）
 
 - グローバルシングルトンとしてモデルを保持（`_model`, `_processor`）
 - `is_loaded()` でロード状態確認
-- メッセージ内の画像は `{"type": "image", "image": PIL.Image}` 形式
-- `qwen_vl_utils.process_vision_info` が利用可能な場合はそちらで処理
+- `asyncio.to_thread()` でブロッキング処理をラップ
 
-### LLM使用箇所
+## フロントエンド実装パターン
 
-| 用途 | 関数 | 備考 |
-|------|------|------|
-| コンセプト相談（チャット） | `chat_stream()` / `LLMClient.chat_stream()` | システムプロンプト: MVディレクター |
-| 全シーン一括プロンプト生成 | `generate_all_scene_prompts()` | JSON配列を返す |
-| 個別シーンのプロンプト改善 | `improve_scene_prompt()` | JSON辞書を返す |
-| 画像プロンプト編集（生成・編集タブ） | `on_gen_img_chat_send()` | `[PROMPT_UPDATE]`ブロック形式 |
-| 動画プロンプト生成（生成・編集タブ） | `on_gen_vid_consult()` | `[VIDEO_PROMPT_UPDATE]`ブロック形式 |
+### APIクライアント
 
-## ComfyUI連携（`comfyui_client.py`）
+`ui/src/api/client.ts` の axios インスタンスは `baseURL: ''`。
+すべてのパスは **`/api/` で始める**（プレフィックス省略禁止）。
 
-- ComfyUI APIモード（`--listen`）で起動前提
-- ワークフローJSONは `workflows/image/` または `workflows/video/` に配置
-- 相対パスはアプリルート（`Path(__file__).parent.parent`）基準で解決
-- パラメータ注入: `_inject_image_params()` / `_inject_video_params()` でノードのclass_typeを見て自動注入
-- シードが `-1` の場合は `random.randint(0, 2**32-1)` で乱数を生成して注入（ワークフロー内の固定シードを上書き）
-- 生成完了はポーリング（`/history/{prompt_id}`）で確認
-- 出力ファイルは `/view` APIでダウンロード、失敗時はローカルoutputディレクトリからコピー
+```typescript
+// 正しい
+client.get('/api/projects/Foo/scenes')
+// 誤り（StaticFiles が受け取ってしまう）
+client.get('/projects/Foo/scenes')
+```
 
-## 一括生成（`batch_generator.py`）
+### SSEフック（useSSE）
 
-- シーンを順番に処理: 画像生成 → 動画生成 → 次のシーンへ
-- `status` が `video_done` のシーンはスキップ（再開対応）
-- 途中停止フラグで中断可能
-- 個別再生成: `target="image"/"video"/"both"` で指定
+```typescript
+const { isStreaming, start, stop } = useSSE()
+start({
+  url: '/api/projects/Foo/llm/chat-stream',
+  body: { messages },
+  onChunk: (chunk) => { /* ... */ },
+  onDone: () => {},
+})
+```
 
-## 書き出し（`video_export.py`）
+### ポーリング（usePoll）
 
-- 有効シーンかつ `video.mp4` が存在しサイズ > 0 のものだけ連結
-- 動画が一部しかなくても書き出し可能（存在するシーンのみ連結）
-- 音楽は `-shortest` で動画長さに合わせてトリム
-- concat用一時ファイルは `tempfile.NamedTemporaryFile(delete=False)` で作成し処理後削除
+```typescript
+const status = usePoll(getQueueStatus, 1500, isActive)
+```
 
 ## パス管理の注意点
 
-- `app.py` では `_APP_DIR = Path(__file__).parent.resolve()` でアプリルートを取得
-- `CONFIG_PATH`, `_WORKFLOWS_DIR`, `BASE_DIR` はすべて `_APP_DIR` 基準の絶対パスで管理
-- これはGradioのコールバック実行時にCWDが一時ディレクトリに変わる問題への対策
-- `settings_manager.py` の `_ROOT_SETTINGS_PATH` は相対パス（要注意）
+- `api.py` / `api_routes/_shared.py` どちらも `Path(__file__).parent.resolve()` でアプリルートを取得
+- `settings_manager.py` の `_ROOT_SETTINGS_PATH` は相対パスのため、`api.py` 起動時に上書き:
+  ```python
+  _sm._ROOT_SETTINGS_PATH = _APP_DIR / "settings.json"
+  ```
+- `api_routes/files.py` はパストラバーサル保護のため `full.relative_to(BASE_DIR.resolve())` を必ず確認
 
 ## コーディング規約
 
-- Python 3.10+
-- 型ヒント使用
-- docstring必須（日本語可）
-- Gradioのイベントハンドラは関数を分離し、app.pyは薄く保つ
-- エラーハンドリング: ComfyUI/LLM接続失敗時はUI上にエラーメッセージ表示
-- コメントは日本語OK
-- `gr.Markdown` は `scale` パラメータ非対応（`gr.Column(scale=N)` でラップする）
+- Python 3.10+、型ヒント使用、docstring 必須（日本語可）
+- TypeScript strict モード、関数コンポーネント + フック
+- コメントは日本語 OK
+- `src/` モジュールは変更しない（`api_routes/` から呼び出すのみ）
+- エラーハンドリング: ComfyUI/LLM 接続失敗時は HTTPException でフロントに伝える
