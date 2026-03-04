@@ -181,6 +181,28 @@ def delete_scene(name: str, scene_id: int) -> dict:
     return {"scenes": [s.to_dict() for s in proj.scenes]}
 
 
+class SceneMoveToBody(BaseModel):
+    target_index: int  # 0始まりのインデックス
+
+
+@router.post("/projects/{name}/scenes/{scene_id}/move-to")
+def move_scene_to(name: str, scene_id: int, body: SceneMoveToBody) -> dict:
+    """シーンを指定インデックスへ移動する（up/downを繰り返して実現）。"""
+    proj = _load_proj(name)
+    current_idx = _find_scene_idx(proj, scene_id)
+    target_idx = max(0, min(body.target_index, len(proj.scenes) - 1))
+
+    while current_idx < target_idx:
+        proj.move_scene_down(current_idx)
+        current_idx += 1
+    while current_idx > target_idx:
+        proj.move_scene_up(current_idx)
+        current_idx -= 1
+
+    proj.save()
+    return {"scenes": [s.to_dict() for s in proj.scenes], "new_index": current_idx}
+
+
 class SceneBulkSaveBody(BaseModel):
     """一括保存: [(scene_id, section, plot), ...]"""
     rows: list[list]  # [[scene_id, section, plot], ...]

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useProject } from '../../context/ProjectContext'
 import { saveProjectSettings } from '../../api/projects'
-import { bulkSaveScenes } from '../../api/scenes'
+import { bulkSaveScenes, moveSceneTo } from '../../api/scenes'
 import ChatPanel, { type ChatMessage } from '../../components/common/ChatPanel'
 import ScenePlanTable, { type SceneRow } from './ScenePlanTable'
 import BulkPlanPanel from './BulkPlanPanel'
@@ -32,6 +32,18 @@ export default function PlanTab() {
 
   function handleRowsChange(rows: SceneRow[]) {
     setPendingRows(rows)
+  }
+
+  async function handleReorder(sceneId: number, targetIndex: number) {
+    if (!projectName) return
+    try {
+      const result = await moveSceneTo(projectName, sceneId, targetIndex)
+      updateScenes(result.scenes)
+      setPendingRows([])
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? String(err)
+      setSaveStatus(`並び替えエラー: ${msg}`)
+    }
   }
 
   function handleSceneProposed(sceneId: number, section: string, plot: string) {
@@ -173,8 +185,10 @@ export default function PlanTab() {
 
         <div style={{ overflow: 'auto', flex: 1 }}>
           <ScenePlanTable
+            projectName={projectName}
             scenes={scenes}
             onChange={handleRowsChange}
+            onReorder={handleReorder}
           />
         </div>
       </div>

@@ -57,6 +57,18 @@ export async function deleteScene(
   return res.data
 }
 
+export async function moveSceneTo(
+  projectName: string,
+  sceneId: number,
+  targetIndex: number,
+): Promise<{ scenes: Scene[]; new_index: number }> {
+  const res = await client.post(
+    `/api/projects/${encodeURIComponent(projectName)}/scenes/${sceneId}/move-to`,
+    { target_index: targetIndex },
+  )
+  return res.data
+}
+
 export async function bulkSaveScenes(
   projectName: string,
   rows: BulkSaveRow[],
