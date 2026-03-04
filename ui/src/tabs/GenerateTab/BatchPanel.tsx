@@ -53,7 +53,7 @@ export default function BatchPanel({ projectName, onDone }: Props) {
         <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => handleStart('video_prompt')} disabled={isRunning}>
           動画プロンプト生成
         </button>
-        <button className="btn-primary" style={{ fontSize: 11 }} onClick={() => handleStart('image')} disabled={isRunning}>
+        <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => handleStart('image')} disabled={isRunning}>
           一括画像生成
         </button>
         <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => handleStart('video', 'preview')} disabled={isRunning}>

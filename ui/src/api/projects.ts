@@ -13,7 +13,6 @@ export interface CreateProjectParams {
   music: File
   scene_duration?: number
   comfyui_url?: string
-  llm_url?: string
   image_resolution_w?: number
   image_resolution_h?: number
   video_resolution_w?: number
@@ -44,7 +43,6 @@ export async function createProject(params: CreateProjectParams): Promise<{
   form.append('music', params.music)
   if (params.scene_duration != null) form.append('scene_duration', String(params.scene_duration))
   if (params.comfyui_url) form.append('comfyui_url', params.comfyui_url)
-  if (params.llm_url) form.append('llm_url', params.llm_url)
   if (params.image_resolution_w != null) form.append('image_resolution_w', String(params.image_resolution_w))
   if (params.image_resolution_h != null) form.append('image_resolution_h', String(params.image_resolution_h))
   if (params.video_resolution_w != null) form.append('video_resolution_w', String(params.video_resolution_w))
@@ -89,6 +87,16 @@ export async function getWorkflows(name: string): Promise<{
 /** アプリのデフォルト設定を取得する */
 export async function getAppConfig(): Promise<AppConfig> {
   const res = await client.get<AppConfig>('/api/config')
+  return res.data
+}
+
+/** 音楽ファイルを差し替える */
+export async function replaceMusic(name: string, file: File): Promise<{ duration: number; music_file: string }> {
+  const form = new FormData()
+  form.append('music', file)
+  const res = await client.put(`/api/projects/${encodeURIComponent(name)}/music`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
   return res.data
 }
 

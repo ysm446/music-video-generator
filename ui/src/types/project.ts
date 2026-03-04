@@ -11,7 +11,6 @@ export interface ProjectMeta {
   video_fps: number
   video_frame_count: number
   comfyui_url: string
-  llm_url: string
   image_workflow: string
   video_workflow: string
   music_url: string | null
@@ -22,7 +21,6 @@ export interface ProjectMeta {
 /** settings.json の内容 */
 export interface ProjectSettings {
   comfyui_url: string
-  llm_url: string
   image_workflow: string
   video_workflow: string
   image_resolution_w: number

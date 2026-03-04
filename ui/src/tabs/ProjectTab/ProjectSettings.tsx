@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useProject } from '../../context/ProjectContext'
-import { saveProjectSettings, getWorkflows } from '../../api/projects'
+import { saveProjectSettings, getWorkflows, replaceMusic } from '../../api/projects'
 
 export default function ProjectSettings() {
   const { project, settings, projectName, reloadProject } = useProject()
 
   const [comfyuiUrl, setComfyuiUrl] = useState('')
-  const [llmUrl, setLlmUrl] = useState('')
   const [concept, setConcept] = useState('')
   const [imgW, setImgW] = useState(1280)
   const [imgH, setImgH] = useState(720)
@@ -23,12 +22,13 @@ export default function ProjectSettings() {
 
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [musicUploading, setMusicUploading] = useState(false)
+  const [musicStatus, setMusicStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   // プロジェクトが変わったら設定を反映
   useEffect(() => {
     if (!project || !settings) return
     setComfyuiUrl(settings.comfyui_url)
-    setLlmUrl(settings.llm_url)
     setConcept(project.concept)
     setImgW(settings.image_resolution_w)
     setImgH(settings.image_resolution_h)
@@ -58,7 +58,6 @@ export default function ProjectSettings() {
     try {
       await saveProjectSettings(projectName, {
         comfyui_url: comfyuiUrl,
-        llm_url: llmUrl,
         concept,
         image_resolution_w: imgW,
         image_resolution_h: imgH,
@@ -98,6 +97,37 @@ export default function ProjectSettings() {
             <audio controls src={project.music_url} style={{ width: '100%', height: 32 }} />
           </div>
         )}
+        <div className="flex gap-2 items-center mt-2">
+          <input
+            type="file"
+            accept="audio/*"
+            disabled={musicUploading}
+            style={{ fontSize: 12, flex: 1 }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file || !projectName) return
+              setMusicUploading(true)
+              setMusicStatus(null)
+              try {
+                const r = await replaceMusic(projectName, file)
+                await reloadProject()
+                setMusicStatus({ type: 'success', msg: `差し替え完了（${Math.floor(r.duration / 60)}:${String(Math.round(r.duration % 60)).padStart(2, '0')}）` })
+              } catch (err: unknown) {
+                const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? '差し替えエラー'
+                setMusicStatus({ type: 'error', msg })
+              } finally {
+                setMusicUploading(false)
+                e.target.value = ''
+              }
+            }}
+          />
+          {musicUploading && <span className="spinner" style={{ verticalAlign: 'middle' }} />}
+          {musicStatus && (
+            <span className={musicStatus.type === 'success' ? 'text-success' : 'text-error'} style={{ fontSize: 12 }}>
+              {musicStatus.msg}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="form-group">
@@ -110,15 +140,9 @@ export default function ProjectSettings() {
         />
       </div>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label>ComfyUI URL</label>
-          <input type="url" value={comfyuiUrl} onChange={e => setComfyuiUrl(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <label>LLM URL</label>
-          <input type="url" value={llmUrl} onChange={e => setLlmUrl(e.target.value)} />
-        </div>
+      <div className="form-group">
+        <label>ComfyUI URL</label>
+        <input type="url" value={comfyuiUrl} onChange={e => setComfyuiUrl(e.target.value)} />
       </div>
 
       <div className="section-title mt-4">解像度</div>

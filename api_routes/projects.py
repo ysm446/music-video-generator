@@ -62,7 +62,6 @@ async def create_project(
     name: str = Form(...),
     scene_duration: int = Form(5),
     comfyui_url: str = Form("http://localhost:8188"),
-    llm_url: str = Form("http://localhost:11434/v1"),
     image_resolution_w: int = Form(1280),
     image_resolution_h: int = Form(720),
     video_resolution_w: int = Form(640),
@@ -106,7 +105,6 @@ async def create_project(
             duration=duration,
             scene_duration=scene_duration,
             comfyui_url=comfyui_url,
-            llm_url=llm_url,
             image_resolution={"width": image_resolution_w, "height": image_resolution_h},
             video_resolution={"width": video_resolution_w, "height": video_resolution_h},
             video_final_resolution={"width": video_final_resolution_w, "height": video_final_resolution_h},
@@ -189,7 +187,6 @@ def load_project(name: str) -> dict:
         "video_fps": proj.video_fps,
         "video_frame_count": proj.video_frame_count,
         "comfyui_url": proj.comfyui_url,
-        "llm_url": proj.llm_url,
         "image_workflow": proj.image_workflow,
         "video_workflow": proj.video_workflow,
         "music_url": music_url,
@@ -206,7 +203,6 @@ def load_project(name: str) -> dict:
 
 class ProjectSettingsBody(BaseModel):
     comfyui_url: Optional[str] = None
-    llm_url: Optional[str] = None
     image_resolution_w: Optional[int] = None
     image_resolution_h: Optional[int] = None
     video_resolution_w: Optional[int] = None
@@ -249,9 +245,6 @@ def save_project_settings(name: str, body: ProjectSettingsBody) -> dict:
     if body.comfyui_url is not None:
         proj.comfyui_url = body.comfyui_url
         changed = True
-    if body.llm_url is not None:
-        proj.llm_url = body.llm_url
-        changed = True
     if body.image_resolution_w is not None and body.image_resolution_h is not None:
         proj.image_resolution = {"width": body.image_resolution_w, "height": body.image_resolution_h}
         changed = True
@@ -277,6 +270,43 @@ def save_project_settings(name: str, body: ProjectSettingsBody) -> dict:
         proj.save()
 
     return {"ok": True}
+
+
+@router.put("/projects/{name}/music")
+async def replace_music(name: str, music: UploadFile = File(...)) -> dict:
+    """プロジェクトの音楽ファイルを差し替える。"""
+    import shutil
+
+    proj = _load_proj(name)
+
+    suffix = Path(music.filename or "music.mp3").suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp_path = Path(tmp.name)
+        tmp.write(await music.read())
+
+    try:
+        duration = _get_audio_duration(tmp_path)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"音楽ファイルエラー: {e}")
+
+    try:
+        # 旧ファイル削除
+        old_abs = proj.absolute_music_path()
+        if old_abs and old_abs.exists():
+            old_abs.unlink(missing_ok=True)
+
+        music_dest = proj.music_dir / (music.filename or f"music{suffix}")
+        shutil.copy2(tmp_path, music_dest)
+        proj.music_file = str(music_dest.relative_to(proj.project_dir))
+        proj.duration = duration
+        proj.save()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    return {"duration": duration, "music_file": proj.music_file}
 
 
 @router.get("/projects/{name}/workflows")

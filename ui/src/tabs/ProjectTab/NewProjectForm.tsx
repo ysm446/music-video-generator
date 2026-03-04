@@ -15,7 +15,6 @@ export default function NewProjectForm({ config }: Props) {
   const [duration, setDuration] = useState<number | null>(null)
   const [sceneDuration, setSceneDuration] = useState(5)
   const [comfyuiUrl, setComfyuiUrl] = useState('http://localhost:8188')
-  const [llmUrl, setLlmUrl] = useState('http://localhost:11434/v1')
   const [imageWf, setImageWf] = useState('')
   const [videoWf, setVideoWf] = useState('')
   const [imgW, setImgW] = useState(1280)
@@ -38,7 +37,6 @@ export default function NewProjectForm({ config }: Props) {
     if (!config) return
     const d = config.defaults
     setComfyuiUrl(d.comfyui_url)
-    setLlmUrl(d.llm_url)
     setImgW(d.image_resolution_w)
     setImgH(d.image_resolution_h)
     setVidW(d.video_resolution_w)
@@ -83,7 +81,6 @@ export default function NewProjectForm({ config }: Props) {
         music: musicFile,
         scene_duration: sceneDuration,
         comfyui_url: comfyuiUrl,
-        llm_url: llmUrl,
         image_resolution_w: imgW,
         image_resolution_h: imgH,
         video_resolution_w: vidW,
@@ -135,15 +132,9 @@ export default function NewProjectForm({ config }: Props) {
         </div>
       </div>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label>ComfyUI URL</label>
-          <input type="url" value={comfyuiUrl} onChange={e => setComfyuiUrl(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <label>LLM URL</label>
-          <input type="url" value={llmUrl} onChange={e => setLlmUrl(e.target.value)} />
-        </div>
+      <div className="form-group">
+        <label>ComfyUI URL</label>
+        <input type="url" value={comfyuiUrl} onChange={e => setComfyuiUrl(e.target.value)} />
       </div>
 
       <div className="section-title mt-4">解像度設定</div>

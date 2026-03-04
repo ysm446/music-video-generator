@@ -24,6 +24,7 @@ from src.project import Project
 from src.scene import Scene
 from src.llm_client import LLMClient
 from src import model_manager
+from src import settings_manager
 from ._shared import BASE_DIR, _cfg
 
 router = APIRouter()
@@ -38,29 +39,26 @@ def _load_proj(name: str) -> Project:
     return Project.load(proj_dir)
 
 
+def _auto_load_model() -> None:
+    """モデルが未ロードの場合、前回使用したモデルを自動ロードする。"""
+    # 1) ルート設定に保存された前回のモデルラベル
+    label = settings_manager.load_root().get("last_model_label", "")
+    if label and label in model_manager.MODEL_PRESETS:
+        model_id = model_manager.MODEL_PRESETS[label]
+    else:
+        # 2) フォールバック: "推奨" を含むプリセット、なければ先頭
+        model_id = next(
+            (v for k, v in model_manager.MODEL_PRESETS.items() if "推奨" in k),
+            next(iter(model_manager.MODEL_PRESETS.values())),
+        )
+    model_manager.load_model(model_id)
+
+
 def _llm_chat_stream(messages: list[dict], proj: Optional[Project]) -> Generator[str, None, None]:
-    """ローカルモデル優先でストリーミングチャットを返すジェネレータ（app.py から移植）。"""
-    if model_manager.is_loaded():
-        yield from model_manager.chat_stream(messages)
-        return
-    llm_url = proj.llm_url if proj else _cfg.get("llm", {}).get("url", "http://localhost:11434/v1")
-    llm_model = _cfg.get("llm", {}).get("model", "qwen3-vl")
-    client = LLMClient(base_url=llm_url, model=llm_model)
-    try:
-        yield from client.chat_stream(messages)
-        return
-    except Exception as e:
-        err = str(e).lower()
-        is_not_found = ("model" in err) and ("not found" in err or "does not exist" in err or "404" in err)
-        if not is_not_found:
-            raise
-        model_ids = client.list_model_ids()
-        fallback = next((m for m in model_ids if m != llm_model), None)
-        if not fallback:
-            avail = ", ".join(model_ids) if model_ids else "(取得できませんでした)"
-            raise RuntimeError(f"LLMモデル '{llm_model}' が見つかりません。利用可能: {avail}") from e
-        _cfg.setdefault("llm", {})["model"] = fallback
-        yield from LLMClient(base_url=llm_url, model=fallback).chat_stream(messages)
+    """ローカルモデルでストリーミングチャットを返すジェネレータ。未ロード時は自動ロードする。"""
+    if not model_manager.is_loaded():
+        _auto_load_model()
+    yield from model_manager.chat_stream(messages)
 
 
 def _llm_chat(messages: list[dict], proj: Optional[Project]) -> str:
@@ -296,16 +294,12 @@ def improve_scene_prompt(name: str, scene_id: int, body: ImprovePromptBody) -> d
 
     scene_data = scene.to_dict()
     try:
-        if model_manager.is_loaded():
-            result = model_manager.improve_scene_prompt(
-                scene_data=scene_data,
-                concept=body.concept,
-            )
-        else:
-            llm_url = proj.llm_url or _cfg.get("llm", {}).get("url", "http://localhost:11434/v1")
-            llm_model = _cfg.get("llm", {}).get("model", "qwen3-vl")
-            client = LLMClient(base_url=llm_url, model=llm_model)
-            result = client.improve_scene_prompt(scene_data=scene_data, concept=body.concept)
+        if not model_manager.is_loaded():
+            _auto_load_model()
+        result = model_manager.improve_scene_prompt(
+            scene_data=scene_data,
+            concept=body.concept,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

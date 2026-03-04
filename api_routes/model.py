@@ -10,11 +10,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src import model_manager
+from src import settings_manager
 
 router = APIRouter()
 
@@ -54,6 +56,12 @@ async def load_model(body: LoadModelRequest):
         msg = await asyncio.to_thread(model_manager.load_model, model_id)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    # 最後にロードしたモデルラベルをルート設定に保存
+    root = settings_manager.load_root()
+    root["last_model_label"] = body.model_label
+    settings_manager._ROOT_SETTINGS_PATH.write_text(
+        json.dumps(root, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     vram = model_manager.get_vram_info()
     return {"message": msg, "vram_info": vram}
 
