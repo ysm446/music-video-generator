@@ -96,6 +96,21 @@ export default function GenerateTab() {
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>一括生成</div>
           <BatchPanel projectName={projectName} onDone={refreshMedia} />
         </div>
+
+        {/* キューステータス */}
+        {queueStatus && (queueStatus.running || queueStatus.pending > 0 || queueStatus.logs.length > 0) && (
+          <div style={{ padding: '0 10px 8px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>個別生成キュー</div>
+            <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+              {queueStatus.running && <div>実行中: <span style={{ color: 'var(--color-text)' }}>{queueStatus.running}</span></div>}
+              {queueStatus.pending > 0 && <div>待機中: {queueStatus.pending} 件</div>}
+              {queueStatus.logs.slice(-3).map((l, i) => (
+                <div key={i} style={{ fontFamily: 'monospace', fontSize: 10, marginTop: 2 }}>{l}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <SceneSidebar
           scenes={scenes}
           selectedId={selectedId}

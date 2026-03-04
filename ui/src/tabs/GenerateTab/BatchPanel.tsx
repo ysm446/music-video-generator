@@ -46,7 +46,7 @@ export default function BatchPanel({ projectName, onDone }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex flex-col gap-1">
         <button className="btn-secondary" style={{ fontSize: 11 }} onClick={() => handleStart('image_prompt')} disabled={isRunning}>
           画像プロンプト生成
         </button>

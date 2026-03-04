@@ -119,28 +119,45 @@ export default function ImageSubTab({ projectName, scene, media, workflows, onSc
               {showHistory ? '▼' : '▶'} 画像履歴（{media!.image_versions.length}件）
             </button>
             {showHistory && (
-              <div className="flex flex-col gap-1" style={{ marginTop: 8, maxHeight: 180, overflowY: 'auto' }}>
-                {media!.image_versions.map(v => (
-                  <div key={v} className="flex gap-2 items-center" style={{ fontSize: 12 }}>
-                    <span style={{
-                      flex: 1,
-                      fontFamily: 'monospace',
-                      color: v === media!.active_image_version ? 'var(--color-primary)' : 'inherit',
+              <div className="flex flex-col gap-2" style={{ marginTop: 8, maxHeight: 320, overflowY: 'auto' }}>
+                {media!.image_versions.map(v => {
+                  const sceneDir = `scene_${String(scene.scene_id).padStart(3, '0')}`
+                  const thumbUrl = `/api/files/${projectName}/scenes/${sceneDir}/image_versions/${v}`
+                  const isActive = v === media!.active_image_version
+                  return (
+                    <div key={v} className="flex gap-2 items-center" style={{
+                      padding: '4px 6px',
+                      borderRadius: 4,
+                      border: `1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                      background: isActive ? 'rgba(233,69,96,0.08)' : 'transparent',
                     }}>
-                      {v === media!.active_image_version ? '★ ' : ''}{v}
-                    </span>
-                    {v !== media!.active_image_version && (
-                      <>
-                        <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleUseVersion(v)}>
-                          使用
-                        </button>
-                        <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: 'var(--color-error)' }} onClick={() => handleDeleteVersion(v)}>
-                          削除
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
+                      <img
+                        src={thumbUrl}
+                        alt={v}
+                        style={{ width: 64, height: 36, objectFit: 'cover', borderRadius: 3, flexShrink: 0, background: 'var(--color-surface2)' }}
+                      />
+                      <span style={{
+                        flex: 1,
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        color: isActive ? 'var(--color-primary)' : 'var(--color-muted)',
+                        wordBreak: 'break-all',
+                      }}>
+                        {isActive ? '★ ' : ''}{v}
+                      </span>
+                      {!isActive && (
+                        <div className="flex flex-col gap-1">
+                          <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleUseVersion(v)}>
+                            使用
+                          </button>
+                          <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: 'var(--color-error)' }} onClick={() => handleDeleteVersion(v)}>
+                            削除
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

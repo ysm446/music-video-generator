@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu } = require("electron");
+const { app, BrowserWindow, dialog, Menu, globalShortcut } = require("electron");
 const path = require("path");
 const { spawn, exec } = require("child_process");
 const http = require("http");
@@ -141,6 +141,10 @@ app.whenReady().then(async () => {
     dialog.showErrorBox("Startup error", String(err));
     app.quit();
   }
+
+  globalShortcut.register("F5", () => mainWindow?.reload());
+  globalShortcut.register("CommandOrControl+R", () => mainWindow?.reload());
+  globalShortcut.register("F12", () => mainWindow?.webContents.toggleDevTools());
 });
 
 app.on("window-all-closed", () => {

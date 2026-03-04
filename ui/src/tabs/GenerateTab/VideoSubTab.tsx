@@ -127,7 +127,7 @@ export default function VideoSubTab({
           </div>
         </div>
 
-        {/* 右: 追加指示 */}
+        {/* 右: 追加指示 + プロンプト生成 */}
         <div className="flex flex-col gap-3">
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label>追加指示（LLM動画プロンプト生成用）</label>
@@ -138,21 +138,20 @@ export default function VideoSubTab({
               placeholder="subtle camera movement..."
             />
           </div>
+          <div className="flex gap-2 items-center">
+            <button
+              className="btn-secondary"
+              onClick={handleGenerateVideoPrompt}
+              disabled={isStreaming}
+            >
+              {isStreaming ? 'LLM生成中...' : 'LLMで動画プロンプト生成'}
+            </button>
+            {isStreaming && (
+              <button className="btn-secondary" style={{ fontSize: 12 }} onClick={stop}>停止</button>
+            )}
+            {llmStatus && <span className="text-muted" style={{ fontSize: 12 }}>{llmStatus}</span>}
+          </div>
         </div>
-      </div>
-
-      <div className="flex gap-2 items-center">
-        <button
-          className="btn-secondary"
-          onClick={handleGenerateVideoPrompt}
-          disabled={isStreaming}
-        >
-          {isStreaming ? 'LLM生成中...' : 'LLMで動画プロンプト生成'}
-        </button>
-        {isStreaming && (
-          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={stop}>停止</button>
-        )}
-        {llmStatus && <span className="text-muted" style={{ fontSize: 12 }}>{llmStatus}</span>}
       </div>
 
       <div className="flex gap-2 items-center">

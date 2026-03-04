@@ -7,7 +7,14 @@ Gradio の app.py を置き換える薄い API 層。
 from __future__ import annotations
 
 import argparse
+import asyncio
+import sys
 from pathlib import Path
+
+# Windows でシステムエラーメッセージの文字化けを防ぐ
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import yaml
 from fastapi import FastAPI
@@ -43,6 +50,15 @@ BASE_DIR = (
 import src.settings_manager as _sm  # noqa: E402
 
 _sm._ROOT_SETTINGS_PATH = _APP_DIR / "settings.json"
+
+# ---- asyncio 例外ハンドラ（クライアント切断の WinError 10054 等を抑制）----
+def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    exc = context.get("exception")
+    if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+        return
+    loop.default_exception_handler(context)
+
+asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
 
 # ---- FastAPI アプリ ----
 app = FastAPI(title="MV Generator API", version="0.1.0")
