@@ -57,6 +57,17 @@ export async function getVideoSeed(projectName: string, sceneId: number, quality
   return r.data.seed
 }
 
+export async function clearMedia(
+  projectName: string,
+  sceneId: number,
+  mediaType: 'image' | 'video_preview' | 'video_final',
+): Promise<SceneMedia> {
+  const r = await client.post(`/api/projects/${projectName}/scenes/${sceneId}/clear-media`, {
+    media_type: mediaType,
+  })
+  return r.data
+}
+
 export async function getQueueStatus(): Promise<QueueStatus> {
   const r = await client.get('/api/queue/status')
   return r.data

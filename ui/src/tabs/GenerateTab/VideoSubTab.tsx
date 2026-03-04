@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Scene } from '../../types/scene'
 import type { SceneMedia } from '../../api/generation'
-import { enqueueGenerate, useVersion, deleteVersion, getVideoSeed } from '../../api/generation'
+import { enqueueGenerate, useVersion, deleteVersion, getVideoSeed, clearMedia } from '../../api/generation'
 import { saveScene } from '../../api/scenes'
 import { useSSE } from '../../hooks/useSSE'
 import SeedInput from '../../components/common/SeedInput'
@@ -44,6 +44,13 @@ export default function VideoSubTab({
     } catch {
       // 動画なし or メタデータなし → 何もしない
     }
+  }
+
+  async function handleClearMedia() {
+    const mediaType = quality === 'final' ? 'video_final' : 'video_preview'
+    if (!confirm(`アクティブな${label}を未設定にしますか？（履歴は保持されます）`)) return
+    await clearMedia(projectName, scene.scene_id, mediaType)
+    onMediaRefresh()
   }
 
   async function handleGenerate() {
@@ -170,6 +177,9 @@ export default function VideoSubTab({
       <div className="flex gap-2 items-center">
         <button className="btn-primary" onClick={handleGenerate}>
           {label}を生成
+        </button>
+        <button className="btn-secondary" style={{ fontSize: 12 }} onClick={handleClearMedia}>
+          {label}をクリア
         </button>
         {queueMsg && <span className="text-muted" style={{ fontSize: 12 }}>{queueMsg}</span>}
       </div>

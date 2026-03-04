@@ -277,6 +277,45 @@ def get_video_seed(name: str, scene_id: int, quality: str = "preview"):
     raise HTTPException(status_code=404, detail="動画内にシード値が見つかりません")
 
 
+class ClearMediaRequest(BaseModel):
+    media_type: str  # "image" / "video_preview" / "video_final"
+
+
+@router.post("/projects/{name}/scenes/{scene_id}/clear-media")
+def clear_media(name: str, scene_id: int, body: ClearMediaRequest):
+    """アクティブメディアを未設定状態にする（履歴は保持）。"""
+    proj = _load_project(name)
+    scene = next((s for s in proj.scenes if s.scene_id == scene_id), None)
+    if scene is None:
+        raise HTTPException(status_code=404, detail="シーンが見つかりません")
+    scene_dir = proj.scene_dir(scene_id)
+
+    if body.media_type == "image":
+        path = scene.image_path(scene_dir)
+        if path.exists():
+            path.unlink()
+        scene.active_image_version = ""
+        if scene.status in ("image_done", "video_done"):
+            scene.status = "plot_done"
+    elif body.media_type == "video_preview":
+        path = scene.video_preview_path(scene_dir)
+        if path.exists():
+            path.unlink()
+        scene.active_video_preview_version = ""
+        if scene.status == "video_done":
+            scene.status = "image_done"
+    elif body.media_type == "video_final":
+        path = scene.video_final_path(scene_dir)
+        if path.exists():
+            path.unlink()
+        scene.active_video_final_version = ""
+    else:
+        raise HTTPException(status_code=400, detail="不正な media_type")
+
+    proj.save_scene(scene)
+    return _scene_media_urls(proj, scene_id)
+
+
 @router.get("/queue/status")
 def get_queue_status():
     """個別生成キューの状態を返す。"""

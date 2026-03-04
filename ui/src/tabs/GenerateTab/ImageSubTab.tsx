@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Scene } from '../../types/scene'
 import type { SceneMedia } from '../../api/generation'
-import { enqueueGenerate, useVersion, deleteVersion, getImageSeed } from '../../api/generation'
+import { enqueueGenerate, useVersion, deleteVersion, getImageSeed, clearMedia } from '../../api/generation'
 import { saveScene } from '../../api/scenes'
 import SeedInput from '../../components/common/SeedInput'
 import ChatPanel, { type ChatMessage } from '../../components/common/ChatPanel'
@@ -26,6 +26,14 @@ export default function ImageSubTab({ projectName, scene, media, workflows, onSc
     } catch {
       // 画像なし or メタデータなし → 何もしない
     }
+  }
+
+  async function handleClearMedia() {
+    if (!confirm('アクティブ画像を未設定にしますか？（履歴は保持されます）')) return
+    const m = await clearMedia(projectName, scene.scene_id, 'image')
+    onMediaRefresh()
+    // ステータス更新のため親にも通知
+    if (m.status) onSceneChange({ status: m.status as Scene['status'] })
   }
 
   async function handleGenerate() {
@@ -118,6 +126,9 @@ export default function ImageSubTab({ projectName, scene, media, workflows, onSc
           <div className="flex gap-2 items-center">
             <button className="btn-primary" onClick={handleGenerate}>
               画像を生成
+            </button>
+            <button className="btn-secondary" style={{ fontSize: 12 }} onClick={handleClearMedia}>
+              画像をクリア
             </button>
             {queueMsg && <span className="text-muted" style={{ fontSize: 12 }}>{queueMsg}</span>}
           </div>
