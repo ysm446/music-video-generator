@@ -31,4 +31,8 @@ def serve_file(path: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="File not found")
 
     mime, _ = mimetypes.guess_type(str(full))
-    return FileResponse(str(full), media_type=mime or "application/octet-stream")
+    return FileResponse(
+        str(full),
+        media_type=mime or "application/octet-stream",
+        headers={"Cache-Control": "no-cache"},
+    )

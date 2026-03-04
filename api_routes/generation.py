@@ -53,11 +53,11 @@ def _scene_media_urls(proj: Project, scene_id: int) -> dict:
     vid_preview = scene.video_preview_path(scene_dir)
     vid_final = scene.video_final_path(scene_dir)
 
-    project_name = proj.project_name
     def to_url(path) -> Optional[str]:
         if path.exists() and path.stat().st_size > 0:
             rel = path.relative_to(BASE_DIR)
-            return f"/api/files/{rel.as_posix()}"
+            mtime = int(path.stat().st_mtime)
+            return f"/api/files/{rel.as_posix()}?v={mtime}"
         return None
 
     # バージョン一覧

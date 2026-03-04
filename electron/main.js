@@ -74,7 +74,7 @@ function startPythonServer() {
 
   pyProc = spawn(pythonCmd, args, {
     cwd: APP_ROOT,
-    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
     stdio: ["ignore", "pipe", "pipe"]
   });
 
@@ -98,8 +98,8 @@ function startPythonServer() {
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: 1600,
+    height: 1200,
     minWidth: 1024,
     minHeight: 720,
     autoHideMenuBar: true,

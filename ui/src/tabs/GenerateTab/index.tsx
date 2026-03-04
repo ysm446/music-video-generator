@@ -31,7 +31,6 @@ export default function GenerateTab() {
     if (queueStatus?.dirty && selectedId && projectName) {
       getSceneMedia(projectName, selectedId).then(m => {
         setMedia(m)
-        // 更新後のステータスをContextにも反映
         if (m.status) {
           const updated = scenes.find(s => s.scene_id === selectedId)
           if (updated && updated.status !== m.status) {
@@ -42,7 +41,6 @@ export default function GenerateTab() {
     }
   }, [queueStatus?.dirty]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ワークフロー一覧
   useEffect(() => {
     if (!projectName) return
     getWorkflows(projectName).then(wf => {
@@ -106,84 +104,93 @@ export default function GenerateTab() {
       </div>
 
       {/* 右メインエリア */}
-      <div className="flex flex-col gap-3" style={{ minWidth: 0, overflow: 'hidden' }}>
+      <div className="flex flex-col gap-3" style={{ minWidth: 0, overflowY: 'auto' }}>
         {!editScene ? (
           <div className="card text-muted" style={{ flex: 1 }}>
             左のサイドバーからシーンを選択してください
           </div>
         ) : (
           <>
-            {/* メディアプレビュー */}
+            {/* シーン情報 */}
             <div className="card" style={{ flexShrink: 0 }}>
-              <div className="flex gap-2 items-start" style={{ flexWrap: 'wrap' }}>
-                <div>
-                  {media?.image_url ? (
-                    <img src={media.image_url} alt="scene" style={{ maxHeight: 160, maxWidth: 280, objectFit: 'contain', border: '1px solid var(--color-border)' }} />
-                  ) : (
-                    <div style={{ width: 200, height: 120, background: 'var(--color-surface)', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
-                      画像なし
-                    </div>
+              <div className="flex gap-3 items-center" style={{ marginBottom: 10, fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>シーン #{editScene.scene_id}</span>
+                <span className="text-muted">ステータス: <strong>{media?.status ?? editScene.status}</strong></span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 0, fontSize: 13, color: 'var(--color-text)' }}>
+                  <input
+                    type="checkbox"
+                    checked={editScene.enabled}
+                    onChange={e => handleSceneChange({ enabled: e.target.checked })}
+                  />
+                  有効
+                </label>
+                <div className="flex gap-2 items-center" style={{ marginLeft: 'auto' }}>
+                  <button className="btn-primary" style={{ fontSize: 12 }} onClick={handleSave}>
+                    保存
+                  </button>
+                  {saveStatus && (
+                    <span className={saveStatus.includes('エラー') ? 'text-error' : 'text-success'} style={{ fontSize: 11 }}>
+                      {saveStatus}
+                    </span>
                   )}
                 </div>
-                <div>
-                  {media?.video_preview_url ? (
-                    <video
-                      src={media.video_preview_url}
-                      controls
-                      style={{ maxHeight: 160, maxWidth: 280 }}
-                    />
-                  ) : (
-                    <div style={{ width: 200, height: 120, background: 'var(--color-surface)', border: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
-                      動画なし
-                    </div>
-                  )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>プロット</label>
+                  <textarea
+                    value={editScene.plot}
+                    onChange={e => handleSceneChange({ plot: e.target.value })}
+                    rows={3}
+                    style={{ fontSize: 12 }}
+                  />
                 </div>
-                <div className="flex flex-col gap-1" style={{ fontSize: 12 }}>
-                  <div>シーン #{editScene.scene_id} | ステータス: <strong>{media?.status ?? editScene.status}</strong></div>
-                  <div className="flex gap-2">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={editScene.enabled}
-                        onChange={e => handleSceneChange({ enabled: e.target.checked })}
-                      />
-                      有効
-                    </label>
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label>プロット</label>
-                    <textarea
-                      value={editScene.plot}
-                      onChange={e => handleSceneChange({ plot: e.target.value })}
-                      rows={2}
-                      style={{ fontSize: 11 }}
-                    />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label>メモ</label>
-                    <textarea
-                      value={editScene.notes}
-                      onChange={e => handleSceneChange({ notes: e.target.value })}
-                      rows={1}
-                      style={{ fontSize: 11 }}
-                    />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <button className="btn-primary" style={{ fontSize: 12 }} onClick={handleSave}>
-                      保存
-                    </button>
-                    {saveStatus && (
-                      <span className={saveStatus.includes('エラー') ? 'text-error' : 'text-success'} style={{ fontSize: 11 }}>
-                        {saveStatus}
-                      </span>
-                    )}
-                  </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>メモ</label>
+                  <textarea
+                    value={editScene.notes}
+                    onChange={e => handleSceneChange({ notes: e.target.value })}
+                    rows={3}
+                    style={{ fontSize: 12 }}
+                  />
                 </div>
               </div>
             </div>
 
+            {/* メディアプレビュー（左右大きく） */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 }}>画像</div>
+                {media?.image_url ? (
+                  <img
+                    src={media.image_url}
+                    alt="scene"
+                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'contain', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 6 }}
+                  />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '16/9', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
+                    画像なし
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 }}>プレビュー動画</div>
+                {media?.video_preview_url ? (
+                  <video
+                    src={media.video_preview_url}
+                    controls
+                    style={{ width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: 6 }}
+                  />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '16/9', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--color-muted)' }}>
+                    動画なし
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* サブタブ */}
-            <div className="card flex flex-col gap-0" style={{ flex: 1, overflow: 'hidden' }}>
+            <div className="card flex flex-col gap-0" style={{ flex: 1, overflow: 'hidden', minHeight: 400 }}>
               <div className="flex gap-0" style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
                 {(['image', 'video_preview', 'video_final'] as SubTab[]).map(tab => (
                   <button

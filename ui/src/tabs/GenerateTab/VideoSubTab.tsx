@@ -83,34 +83,62 @@ export default function VideoSubTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="form-group">
-        <label>動画プロンプト</label>
-        <textarea
-          value={scene.video_prompt}
-          onChange={e => onSceneChange({ video_prompt: e.target.value })}
-          rows={3}
-          placeholder="Scene: ..., Action: ..., Camera: ..."
-        />
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* 左: プロンプト・シード・ワークフロー */}
+        <div className="flex flex-col gap-3">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>動画プロンプト</label>
+            <textarea
+              value={scene.video_prompt}
+              onChange={e => onSceneChange({ video_prompt: e.target.value })}
+              rows={3}
+              placeholder="Scene: ..., Action: ..., Camera: ..."
+            />
+          </div>
 
-      <div className="form-group">
-        <label>ネガティブプロンプト</label>
-        <textarea
-          value={scene.video_negative}
-          onChange={e => onSceneChange({ video_negative: e.target.value })}
-          rows={2}
-          placeholder="Negative prompt..."
-        />
-      </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>ネガティブプロンプト</label>
+            <textarea
+              value={scene.video_negative}
+              onChange={e => onSceneChange({ video_negative: e.target.value })}
+              rows={2}
+              placeholder="Negative prompt..."
+            />
+          </div>
 
-      <div className="form-group">
-        <label>追加指示（LLM動画プロンプト生成用）</label>
-        <textarea
-          value={scene.video_instruction}
-          onChange={e => onSceneChange({ video_instruction: e.target.value })}
-          rows={2}
-          placeholder="subtle camera movement..."
-        />
+          <div className="flex gap-4 items-start">
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label>シード</label>
+              <SeedInput
+                value={scene.video_seed}
+                onChange={v => onSceneChange({ video_seed: v })}
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label>ワークフロー</label>
+              <select
+                value={scene.video_workflow ?? ''}
+                onChange={e => onSceneChange({ video_workflow: e.target.value || null })}
+              >
+                <option value="">(デフォルト)</option>
+                {workflows.map(wf => <option key={wf} value={wf}>{wf}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* 右: 追加指示 */}
+        <div className="flex flex-col gap-3">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>追加指示（LLM動画プロンプト生成用）</label>
+            <textarea
+              value={scene.video_instruction}
+              onChange={e => onSceneChange({ video_instruction: e.target.value })}
+              rows={8}
+              placeholder="subtle camera movement..."
+            />
+          </div>
+        </div>
       </div>
 
       <div className="flex gap-2 items-center">
@@ -125,26 +153,6 @@ export default function VideoSubTab({
           <button className="btn-secondary" style={{ fontSize: 12 }} onClick={stop}>停止</button>
         )}
         {llmStatus && <span className="text-muted" style={{ fontSize: 12 }}>{llmStatus}</span>}
-      </div>
-
-      <div className="flex gap-4 items-start">
-        <div className="form-group" style={{ flex: 1 }}>
-          <label>シード</label>
-          <SeedInput
-            value={scene.video_seed}
-            onChange={v => onSceneChange({ video_seed: v })}
-          />
-        </div>
-        <div className="form-group" style={{ flex: 1 }}>
-          <label>ワークフロー</label>
-          <select
-            value={scene.video_workflow ?? ''}
-            onChange={e => onSceneChange({ video_workflow: e.target.value || null })}
-          >
-            <option value="">(デフォルト)</option>
-            {workflows.map(wf => <option key={wf} value={wf}>{wf}</option>)}
-          </select>
-        </div>
       </div>
 
       <div className="flex gap-2 items-center">

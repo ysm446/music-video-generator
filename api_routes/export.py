@@ -46,7 +46,8 @@ def get_thumbnails(name: str):
         url = None
         if path is not None and path.exists() and path.stat().st_size > 0:
             rel = path.relative_to(BASE_DIR)
-            url = f"/api/files/{rel.as_posix()}"
+            mtime = int(path.stat().st_mtime)
+            url = f"/api/files/{rel.as_posix()}?v={mtime}"
         result.append({"scene_id": scene_id, "url": url})
     return {"thumbnails": result}
 
@@ -62,10 +63,11 @@ def get_outputs(name: str):
     if output_dir.exists():
         for f in sorted(output_dir.glob("*.mp4"), reverse=True):
             rel = f.relative_to(BASE_DIR)
+            st = f.stat()
             outputs.append({
                 "filename": f.name,
-                "url": f"/api/files/{rel.as_posix()}",
-                "size": f.stat().st_size,
+                "url": f"/api/files/{rel.as_posix()}?v={int(st.st_mtime)}",
+                "size": st.st_size,
             })
     return {"outputs": outputs}
 
@@ -129,7 +131,8 @@ async def export_video(name: str, body: ExportRequest) -> StreamingResponse:
                 video_fade_out_seconds=body.video_fade_out_sec,
             )
             rel = out_path.relative_to(BASE_DIR)
-            url = f"/api/files/{rel.as_posix()}"
+            mtime = int(out_path.stat().st_mtime)
+            url = f"/api/files/{rel.as_posix()}?v={mtime}"
             loop.call_soon_threadsafe(
                 queue.put_nowait,
                 json.dumps({"type": "done", "message": f"{label}書き出し完了: {out_path.name}", "url": url}),
