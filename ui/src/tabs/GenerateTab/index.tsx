@@ -49,6 +49,12 @@ export default function GenerateTab() {
     }).catch(() => {})
   }, [projectName])
 
+  // シーンが読み込まれたとき、未選択なら先頭を自動選択
+  useEffect(() => {
+    if (selectedId !== null || scenes.length === 0 || !projectName) return
+    handleSelectScene(scenes[0])
+  }, [scenes, projectName]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const refreshMedia = useCallback(async () => {
     if (!projectName || !selectedId) return
     const m = await getSceneMedia(projectName, selectedId)
@@ -189,10 +195,13 @@ export default function GenerateTab() {
                 )}
               </div>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 }}>プレビュー動画</div>
-                {media?.video_preview_url ? (
+                <div style={{ fontSize: 11, color: 'var(--color-muted)', marginBottom: 4 }}>
+                  {activeSubTab === 'video_final' ? '最終版動画' : 'プレビュー動画'}
+                </div>
+                {(activeSubTab === 'video_final' ? media?.video_final_url : media?.video_preview_url) ? (
                   <video
-                    src={media.video_preview_url}
+                    key={activeSubTab === 'video_final' ? media?.video_final_url ?? '' : media?.video_preview_url ?? ''}
+                    src={activeSubTab === 'video_final' ? media!.video_final_url! : media!.video_preview_url!}
                     controls
                     style={{ width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: 6 }}
                   />

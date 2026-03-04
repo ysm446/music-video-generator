@@ -47,6 +47,16 @@ export async function getSceneMedia(projectName: string, sceneId: number): Promi
   return r.data
 }
 
+export async function getImageSeed(projectName: string, sceneId: number): Promise<number> {
+  const r = await client.get(`/api/projects/${projectName}/scenes/${sceneId}/image-seed`)
+  return r.data.seed
+}
+
+export async function getVideoSeed(projectName: string, sceneId: number, quality: 'preview' | 'final'): Promise<number> {
+  const r = await client.get(`/api/projects/${projectName}/scenes/${sceneId}/video-seed?quality=${quality}`)
+  return r.data.seed
+}
+
 export async function getQueueStatus(): Promise<QueueStatus> {
   const r = await client.get('/api/queue/status')
   return r.data

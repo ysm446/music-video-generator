@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { Scene } from '../../types/scene'
 import type { SceneMedia } from '../../api/generation'
-import { enqueueGenerate, useVersion, deleteVersion } from '../../api/generation'
+import { enqueueGenerate, useVersion, deleteVersion, getVideoSeed } from '../../api/generation'
+import { saveScene } from '../../api/scenes'
 import { useSSE } from '../../hooks/useSSE'
 import SeedInput from '../../components/common/SeedInput'
 
@@ -36,8 +37,18 @@ export default function VideoSubTab({
   const activeVersion = quality === 'preview' ? media?.active_video_preview_version : media?.active_video_final_version
   const label = quality === 'preview' ? 'プレビュー動画' : '最終版動画'
 
+  async function handleReadSeedFromVideo() {
+    try {
+      const seed = await getVideoSeed(projectName, scene.scene_id, quality)
+      onSceneChange({ video_seed: seed })
+    } catch {
+      // 動画なし or メタデータなし → 何もしない
+    }
+  }
+
   async function handleGenerate() {
     try {
+      await saveScene(projectName, scene.scene_id, scene)
       const r = await enqueueGenerate(projectName, scene.scene_id, 'video', quality)
       setQueueMsg(r.message)
     } catch (err: unknown) {
@@ -112,6 +123,8 @@ export default function VideoSubTab({
               <SeedInput
                 value={scene.video_seed}
                 onChange={v => onSceneChange({ video_seed: v })}
+                showReadFromPng={true}
+                onReadFromPng={handleReadSeedFromVideo}
               />
             </div>
             <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
@@ -172,28 +185,50 @@ export default function VideoSubTab({
             {showHistory ? '▼' : '▶'} {label}履歴（{versions.length}件）
           </button>
           {showHistory && (
-            <div className="flex flex-col gap-1" style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
-              {versions.map(v => (
-                <div key={v} className="flex gap-2 items-center" style={{ fontSize: 12 }}>
-                  <span style={{
-                    flex: 1,
-                    fontFamily: 'monospace',
-                    color: v === activeVersion ? 'var(--color-primary)' : 'inherit',
+            <div className="flex flex-col gap-2" style={{ marginTop: 8, maxHeight: 400, overflowY: 'auto' }}>
+              {versions.map(v => {
+                const sceneDir = `scene_${String(scene.scene_id).padStart(3, '0')}`
+                const videoUrl = `/api/files/${projectName}/scenes/${sceneDir}/video_versions/${v}`
+                const isActive = v === activeVersion
+                return (
+                  <div key={v} className="flex gap-2 items-center" style={{
+                    padding: '4px 6px',
+                    borderRadius: 4,
+                    border: `1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                    background: isActive ? 'rgba(233,69,96,0.08)' : 'transparent',
                   }}>
-                    {v === activeVersion ? '★ ' : ''}{v}
-                  </span>
-                  {v !== activeVersion && (
-                    <>
-                      <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleUseVersion(v)}>
-                        使用
-                      </button>
-                      <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: 'var(--color-error)' }} onClick={() => handleDeleteVersion(v)}>
-                        削除
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
+                    <video
+                      src={videoUrl}
+                      preload="metadata"
+                      muted
+                      loop
+                      playsInline
+                      style={{ width: 160, height: 90, objectFit: 'cover', borderRadius: 3, flexShrink: 0, background: '#000', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLVideoElement).play()}
+                      onMouseLeave={e => { const el = e.currentTarget as HTMLVideoElement; el.pause(); el.currentTime = 0 }}
+                    />
+                    <span style={{
+                      flex: 1,
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: isActive ? 'var(--color-primary)' : 'var(--color-muted)',
+                      wordBreak: 'break-all',
+                    }}>
+                      {isActive ? '★ ' : ''}{v}
+                    </span>
+                    {!isActive && (
+                      <div className="flex flex-col gap-1">
+                        <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => handleUseVersion(v)}>
+                          使用
+                        </button>
+                        <button className="btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: 'var(--color-error)' }} onClick={() => handleDeleteVersion(v)}>
+                          削除
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

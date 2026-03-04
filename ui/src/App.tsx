@@ -57,13 +57,13 @@ function AppInner() {
         )}
       </div>
 
-      {/* タブコンテンツ */}
-      <div className="tab-content">
-        {activeTab === 'project' && <ProjectTab />}
-        {activeTab === 'plan' && <PlanTab />}
-        {activeTab === 'generate' && <GenerateTab />}
-        {activeTab === 'export' && <ExportTab />}
-        {activeTab === 'model' && <ModelTab />}
+      {/* タブコンテンツ（display:none で状態を保持） */}
+      <div className="tab-content" style={{ position: 'relative' }}>
+        <div style={{ display: activeTab === 'project' ? undefined : 'none' }}><ProjectTab /></div>
+        <div style={{ display: activeTab === 'plan' ? undefined : 'none' }}><PlanTab /></div>
+        <div style={{ display: activeTab === 'generate' ? undefined : 'none', height: '100%' }}><GenerateTab /></div>
+        <div style={{ display: activeTab === 'export' ? undefined : 'none' }}><ExportTab /></div>
+        <div style={{ display: activeTab === 'model' ? undefined : 'none' }}><ModelTab /></div>
       </div>
     </div>
   )

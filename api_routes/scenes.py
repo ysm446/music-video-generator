@@ -199,6 +199,13 @@ def move_scene_to(name: str, scene_id: int, body: SceneMoveToBody) -> dict:
         proj.move_scene_up(current_idx)
         current_idx -= 1
 
+    # 並び替え後、上から順に start_time / end_time を再計算して保存
+    sd = proj.scene_duration
+    for i, scene in enumerate(proj.scenes):
+        scene.start_time = round(i * sd, 2)
+        scene.end_time = round((i + 1) * sd, 2)
+        scene.save(proj.scene_dir(scene.scene_id))
+
     proj.save()
     return {"scenes": [s.to_dict() for s in proj.scenes], "new_index": current_idx}
 

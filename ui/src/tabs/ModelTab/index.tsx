@@ -21,7 +21,9 @@ export default function ModelTab() {
     getModelPresets().then(p => {
       setPresets(p)
       const labels = Object.keys(p)
-      if (labels.length > 0) setSelectedLabel(labels[0])
+      if (labels.length === 0) return
+      const saved = localStorage.getItem('model_selected_label')
+      setSelectedLabel(saved && labels.includes(saved) ? saved : labels[0])
     }).catch(() => {})
   }, [])
 
@@ -88,7 +90,7 @@ export default function ModelTab() {
           <label>モデルプリセット</label>
           <select
             value={selectedLabel}
-            onChange={e => setSelectedLabel(e.target.value)}
+            onChange={e => { setSelectedLabel(e.target.value); localStorage.setItem('model_selected_label', e.target.value) }}
             disabled={loading}
           >
             {Object.keys(presets).map(label => (

@@ -211,6 +211,72 @@ def get_scene_media(name: str, scene_id: int):
     return _scene_media_urls(proj, scene_id)
 
 
+@router.get("/projects/{name}/scenes/{scene_id}/image-seed")
+def get_image_seed(name: str, scene_id: int):
+    """アクティブ画像のPNGメタデータからシード値を読み取る。"""
+    import json
+    from PIL import Image
+
+    proj = _load_project(name)
+    scene = next((s for s in proj.scenes if s.scene_id == scene_id), None)
+    if scene is None:
+        raise HTTPException(status_code=404, detail="シーンが見つかりません")
+    scene_dir = proj.scene_dir(scene_id)
+    img_path = scene.image_path(scene_dir)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="画像が見つかりません")
+
+    try:
+        img = Image.open(img_path)
+        text_data = img.info
+        if "prompt" in text_data:
+            prompt_data = json.loads(text_data["prompt"])
+            for node in prompt_data.values():
+                inputs = node.get("inputs", {})
+                for key in ("seed", "noise_seed"):
+                    if key in inputs and isinstance(inputs[key], int):
+                        return {"seed": inputs[key]}
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="PNG内にシード値が見つかりません")
+
+
+@router.get("/projects/{name}/scenes/{scene_id}/video-seed")
+def get_video_seed(name: str, scene_id: int, quality: str = "preview"):
+    """アクティブ動画のメタデータからシード値を読み取る（ffprobe使用）。"""
+    import subprocess
+
+    proj = _load_project(name)
+    scene = next((s for s in proj.scenes if s.scene_id == scene_id), None)
+    if scene is None:
+        raise HTTPException(status_code=404, detail="シーンが見つかりません")
+    scene_dir = proj.scene_dir(scene_id)
+    video_path = scene.video_final_path(scene_dir) if quality == "final" else scene.video_preview_path(scene_dir)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="動画が見つかりません")
+
+    try:
+        import json as _json
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(video_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = _json.loads(result.stdout)
+        tags = data.get("format", {}).get("tags", {})
+        if "prompt" in tags:
+            prompt_data = _json.loads(tags["prompt"])
+            for node in prompt_data.values():
+                inputs = node.get("inputs", {})
+                for key in ("seed", "noise_seed"):
+                    if key in inputs and isinstance(inputs[key], int):
+                        return {"seed": inputs[key]}
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="動画内にシード値が見つかりません")
+
+
 @router.get("/queue/status")
 def get_queue_status():
     """個別生成キューの状態を返す。"""
