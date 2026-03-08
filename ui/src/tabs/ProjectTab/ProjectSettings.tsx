@@ -150,22 +150,22 @@ export default function ProjectSettings() {
         <div className="form-group">
           <label>画像 幅×高さ</label>
           <div className="flex gap-2">
-            <input type="number" value={imgW} onChange={e => setImgW(Number(e.target.value))} min={64} step={64} />
-            <input type="number" value={imgH} onChange={e => setImgH(Number(e.target.value))} min={64} step={64} />
+            <input type="number" value={imgW} onChange={e => setImgW(Number(e.target.value))} min={64} step={1} />
+            <input type="number" value={imgH} onChange={e => setImgH(Number(e.target.value))} min={64} step={1} />
           </div>
         </div>
         <div className="form-group">
           <label>プレビュー動画 幅×高さ</label>
           <div className="flex gap-2">
-            <input type="number" value={vidW} onChange={e => setVidW(Number(e.target.value))} min={64} step={64} />
-            <input type="number" value={vidH} onChange={e => setVidH(Number(e.target.value))} min={64} step={64} />
+            <input type="number" value={vidW} onChange={e => setVidW(Number(e.target.value))} min={64} step={1} />
+            <input type="number" value={vidH} onChange={e => setVidH(Number(e.target.value))} min={64} step={1} />
           </div>
         </div>
         <div className="form-group">
           <label>最終動画 幅×高さ</label>
           <div className="flex gap-2">
-            <input type="number" value={vidFinalW} onChange={e => setVidFinalW(Number(e.target.value))} min={64} step={64} />
-            <input type="number" value={vidFinalH} onChange={e => setVidFinalH(Number(e.target.value))} min={64} step={64} />
+            <input type="number" value={vidFinalW} onChange={e => setVidFinalW(Number(e.target.value))} min={64} step={1} />
+            <input type="number" value={vidFinalH} onChange={e => setVidFinalH(Number(e.target.value))} min={64} step={1} />
           </div>
         </div>
       </div>

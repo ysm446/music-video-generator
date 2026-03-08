@@ -127,7 +127,7 @@ async def create_project(
         # 設定を保存
         settings_manager.save(proj.project_dir, {
             "comfyui_url": comfyui_url,
-            "llm_url": llm_url,
+            "llm_url": _cfg.get("llm", {}).get("url", "http://localhost:11434/v1"),
             "image_resolution_w": image_resolution_w,
             "image_resolution_h": image_resolution_h,
             "video_resolution_w": video_resolution_w,

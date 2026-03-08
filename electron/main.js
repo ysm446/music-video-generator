@@ -113,6 +113,7 @@ async function createWindow() {
 
   const url = `http://${HOST}:${PORT}`;
   await waitForServer(url, START_TIMEOUT_MS);
+  await mainWindow.webContents.session.clearCache();
   await mainWindow.loadURL(url);
 }
 
